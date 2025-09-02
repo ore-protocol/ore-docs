@@ -1,0 +1,28 @@
+name: Documentation Quality Check
+
+on:
+  pull_request:
+    paths: ['docs/**', '*.md']
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Markdown Lint
+        uses: articulate/actions-markdownlint@v1
+        with:
+          config: .markdownlint.json
+          files: 'docs/**/*.md'
+          
+      - name: Check Links
+        uses: gaurav-nelson/github-action-markdown-link-check@v1
+        with:
+          use-quiet-mode: 'yes'
+          
+      - name: Spelling Check  
+        uses: rojopolis/spellcheck-github-actions@0.24.0
+        with:
+          source_files: docs/**/*.md
+          task_name: Markdown

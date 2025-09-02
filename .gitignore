@@ -1,0 +1,115 @@
+# OS Generated Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# IDE & Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.settings/
+*.sublime-project
+*.sublime-workspace
+.atom/
+
+# Node (GitHub Actions 관련)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# Documentation Build
+_site/
+.jekyll-cache/
+.jekyll-metadata
+*.pdf
+
+# Temporary Files
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+~$*
+
+# Log Files
+*.log
+logs/
+
+# Environment Variables
+.env
+.env.local
+.env.*.local
+
+# Python (문서 생성 스크립트용)
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+venv/
+ENV/
+
+# Ruby (GitHub Pages 관련)
+*.gem
+*.rbc
+.bundle/
+.config
+Gemfile.lock
+
+# Custom Scripts Output
+scripts/output/
+scripts/temp/
+generated/
+
+# Large Media Files (필요시 Git LFS 사용)
+*.mp4
+*.mov
+*.avi
+*.zip
+*.tar.gz
+
+# Private Documents
+private/
+confidential/
+*.private.md
+*-draft.md
+
+# Build Artifacts
+dist/
+build/
+out/
+
+# Coverage Reports
+coverage/
+*.lcov
+.nyc_output/
+
+# Wiki Clone (로컬 테스트용)
+*.wiki.git/
+wiki-repo/
+
+# Markdown Preview
+.markdownlint-cli2-cache
+
+# macOS Finder
+.fseventsd
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Windows
+$RECYCLE.BIN/
+*.lnk
+
+# Linux
+.directory
+.Trash-*

@@ -1,0 +1,213 @@
+name: Auto-Sync Repository to Wiki
+
+on:
+  push:
+    branches: [main]
+    paths: ['docs/**', 'WIKI_HOME.md', 'README.md']
+  workflow_dispatch:  # 수동 트리거도 가능
+
+permissions:
+  contents: write
+
+jobs:
+  sync-to-wiki:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Git Config
+        run: |
+          git config --global user.name "ORE Documentation Bot"
+          git config --global user.email "docs@ore-protocol.com"
+
+      - name: Clone or Update Wiki
+        run: |
+          echo "📚 Cloning wiki repository..."
+          git clone https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.wiki.git wiki-repo || {
+            echo "Clone failed, trying alternative method..."
+            mkdir -p wiki-repo
+            cd wiki-repo
+            git init
+            git remote add origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.wiki.git
+            git fetch origin
+            git checkout master || git checkout main || git checkout -b master
+            cd ..
+          }
+          
+          # Wiki 디렉토리 확인
+          if [ -d "wiki-repo" ]; then
+            echo "✅ Wiki directory exists"
+            cd wiki-repo
+            
+            # 현재 브랜치 확인
+            CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "none")
+            echo "Current branch: $CURRENT_BRANCH"
+            
+            # Pull latest changes
+            git pull origin $CURRENT_BRANCH || echo "Pull failed or no remote branch"
+            
+            cd ..
+          else
+            echo "❌ Failed to create wiki directory"
+            exit 1
+          fi
+
+      - name: Clean Wiki Content
+        run: |
+          echo "🧹 Cleaning old wiki content..."
+          cd wiki-repo
+          # Git 추적 파일만 삭제 (Home.md 제외)
+          git ls-files '*.md' | grep -v '^Home.md$' | xargs -r rm -f
+          cd ..
+
+      - name: Copy Documentation Files
+        run: |
+          echo "📄 Copying documentation files..."
+          
+          # Home 페이지
+          if [ -f "WIKI_HOME.md" ]; then
+            echo "Copying WIKI_HOME.md to Home.md"
+            cp WIKI_HOME.md wiki-repo/Home.md
+          elif [ -f "README.md" ]; then
+            echo "WIKI_HOME.md not found, using README.md"
+            cp README.md wiki-repo/Home.md
+          fi
+          
+          # 각 디렉토리별로 파일 복사
+          echo "📁 Copying business documents..."
+          for file in docs/business/*.md; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file" .md)
+              # 파일명 변환 (snake_case to Title-Case)
+              newname=$(echo "$filename" | sed 's/_/-/g' | sed 's/\b\(.\)/\u\1/g')
+              echo "  - $filename → $newname"
+              cp "$file" "wiki-repo/$newname.md"
+            fi
+          done
+          
+          echo "📁 Copying technical documents..."
+          for file in docs/technical/*.md; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file" .md)
+              newname=$(echo "$filename" | sed 's/_/-/g' | sed 's/\b\(.\)/\u\1/g')
+              echo "  - $filename → $newname"
+              cp "$file" "wiki-repo/$newname.md"
+            fi
+          done
+          
+          echo "📁 Copying game-design documents..."
+          for file in docs/game-design/*.md; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file" .md)
+              newname=$(echo "$filename" | sed 's/_/-/g' | sed 's/\b\(.\)/\u\1/g')
+              echo "  - $filename → $newname"
+              cp "$file" "wiki-repo/$newname.md"
+            fi
+          done
+          
+          echo "📁 Copying operations documents..."
+          for file in docs/operations/*.md; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file" .md)
+              newname=$(echo "$filename" | sed 's/_/-/g' | sed 's/\b\(.\)/\u\1/g')
+              echo "  - $filename → $newname"
+              cp "$file" "wiki-repo/$newname.md"
+            fi
+          done
+          
+          echo "📁 Copying AI guides..."
+          for file in docs/ai-guides/*.md; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file" .md)
+              newname=$(echo "$filename" | sed 's/_/-/g' | sed 's/\b\(.\)/\u\1/g')
+              echo "  - $filename → $newname"
+              cp "$file" "wiki-repo/$newname.md"
+            fi
+          done
+
+      - name: Generate Sidebar
+        run: |
+          echo "📝 Generating sidebar..."
+          cat > wiki-repo/_Sidebar.md << 'EOF'
+          ## 🏠 [Home](Home)
+          
+          ## 🏢 Business & Strategy
+          - [Business Plan](Business-Plan)
+          - [MVP Definition](Mvp-Definition)
+          - [Executive Brief](Executive-Brief)
+          - [Branding Guide](Branding-Guide)
+          - [AI Team Strategy](Ai-Team-Strategy)
+          - [Development Roadmap](Development-Roadmap)
+          
+          ## 🔧 Technical Specs
+          - [Backend Spec](Backend-Spec)
+          - [Frontend Spec](Frontend-Spec)
+          - [Infrastructure Spec](Infrastructure-Spec)
+          
+          ## 🎮 Game Design
+          - [Gameplay Spec](Gameplay-Spec)
+          - [Game Worldview](Game-Worldview)
+          - [UX Guide](Ux-Guide)
+          
+          ## 🚀 Operations
+          - [Operations Roadmap](Operations-Roadmap)
+          - [Mystery Campaign](Mystery-Campaign)
+          - [Genesis Operations](Genesis-Operations)
+          - [Live Ops Playbook](Live-Ops-Playbook)
+          
+          ## 🤖 AI Guides
+          - [Backend AI Guide](Backend-Ai-Guide)
+          - [Frontend AI Guide](Frontend-Ai-Guide)
+          - [Infrastructure AI Guide](Infrastructure-Ai-Guide)
+          
+          ---
+          
+          ## 🔗 Quick Links
+          - 📊 [Project Board](https://github.com/orgs/ore-protocol/projects/1)
+          - 🏗️ [Main Code](https://github.com/ore-protocol/ore-platform)
+          - 💬 Discord (Coming Soon)
+          
+          *"Between the zeros and ones"*
+          EOF
+
+      - name: Commit and Push Changes
+        run: |
+          cd wiki-repo
+          
+          # 변경사항 확인
+          git add -A
+          
+          if git diff --staged --quiet; then
+            echo "📝 No changes to commit"
+          else
+            echo "📤 Pushing changes to wiki..."
+            git commit -m "📚 Auto-sync from repository ($(date '+%Y-%m-%d %H:%M'))"
+            
+            # Push 시도
+            git push origin HEAD:master || \
+            git push origin HEAD:main || \
+            git push origin HEAD || {
+              echo "❌ Failed to push changes"
+              echo "Current branch: $(git rev-parse --abbrev-ref HEAD)"
+              echo "Remote branches:"
+              git branch -r
+              exit 1
+            }
+            
+            echo "✅ Wiki updated successfully!"
+          fi
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "📊 Sync Summary:"
+          echo "Repository: ${{ github.repository }}"
+          echo "Triggered by: ${{ github.event_name }}"
+          echo "Commit: ${{ github.sha }}"
+          if [ -d "wiki-repo" ]; then
+            echo "Files in wiki:"
+            ls -la wiki-repo/*.md 2>/dev/null || echo "No markdown files"
+          fi
