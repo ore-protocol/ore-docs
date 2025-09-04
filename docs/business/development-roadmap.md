@@ -88,20 +88,18 @@ AI 도구 (필수):
 
   프로젝트 구조:
     ore-platform/
-    ├── unity-client/         # Unity AR 클라이언트
-    ├── backend/
-    │   ├── services-rust/    # Rust 마이크로서비스
-    │   │   ├── location/     # ⭐ 위치 처리 (성능 크리티컬)
-    │   │   ├── game/        # ⭐ 게임 로직 (안정성 크리티컬)
-    │   │   └── realtime/    # WebSocket 엔진
-    │   ├── services-go/     # Go 마이크로서비스
-    │   │   ├── gateway/     # API Gateway
-    │   │   ├── auth/       # 인증 서비스
-    │   │   ├── ad/         # 광고 서비스 (오프체인)
-    │   │   └── analytics/  # 분석 서비스
-    │   └── shared/         # 공통 코드 (protobuf 등)
-    ├── infrastructure/     # Terraform, Docker
-    └── docs/              # 문서
+    ├── unity-client/           # Unity AR 클라이언트
+    ├── backend/                # 도메인 기반 마이크로서비스
+    │   ├── location-service/   # ⭐ 위치 처리 (Rust, 성능 크리티컬)
+    │   ├── game-service/      # ⭐ 게임 로직 (Rust, 안정성 크리티컬)
+    │   ├── realtime-service/  # WebSocket 엔진 (Rust)
+    │   ├── gateway-service/   # API Gateway (Go)
+    │   ├── auth-service/     # 인증 서비스 (Go)
+    │   ├── ad-service/       # 광고 서비스 (Go, 오프체인)
+    │   ├── analytics-service/ # 분석 서비스 (Go)
+    │   └── shared/           # 공통 코드 (protobuf 등)
+    ├── infrastructure/       # Terraform, Docker
+    └── docs/                # 문서
 
   AWS 인프라:
     - ECS Fargate 클러스터 생성
@@ -1267,18 +1265,18 @@ GPS 정확도:
 mkdir ore-platform && cd ore-platform
 git init
 
-# 2. Rust + Go 구조 생성
-mkdir -p backend/services-rust/{location,game,realtime}
-mkdir -p backend/services-go/{gateway,auth,ad,analytics}
-mkdir unity-client infrastructure docs
+# 2. 도메인 기반 구조 생성
+mkdir -p backend/{location-service,game-service,realtime-service}
+mkdir -p backend/{gateway-service,auth-service,ad-service,analytics-service}
+mkdir -p backend/shared/proto unity-client infrastructure docs
 
 # 3. Rust workspace 설정
 cat > Cargo.toml << EOF
 [workspace]
 members = [
-    "backend/services-rust/location",
-    "backend/services-rust/game",
-    "backend/services-rust/realtime",
+    "backend/location-service",
+    "backend/game-service", 
+    "backend/realtime-service",
 ]
 EOF
 
