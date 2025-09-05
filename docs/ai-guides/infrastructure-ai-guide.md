@@ -1078,7 +1078,7 @@ on:
 env:
   TERRAFORM_VERSION: '1.6.0'
   ANSIBLE_VERSION: '2.15.0'
-  AWS_REGION: 'ap-northeast-2'
+  AWS_REGION: 'us-west-1'
 
 jobs:
   # Determine environment from branch
@@ -1221,7 +1221,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ap-northeast-2
+          aws-region: us-west-1
 
       - name: Login to ECR
         uses: aws-actions/amazon-ecr-login@v2

@@ -65,7 +65,7 @@ Project ORE의 인프라는 **초기 비용과 운영 복잡성을 최소화**�
     예외: 블록체인 노드 (안정성), GPU (비용)
 
   Single vs Multi-region:
-    선택: Single region (Seoul) 시작
+    선택: Single region (N. California) 시작
     이유: 복잡성과 비용 최소화
     확장: 10K users 도달 시 DR 구성
 ```
@@ -92,7 +92,7 @@ Project ORE의 인프라는 **초기 비용과 운영 복잡성을 최소화**�
                               │
            ┌──────────────────┼──────────────────┐
            │            AWS Cloud Region         │
-           │          (ap-northeast-2)           │
+           │            (us-west-1)              │
            │                                     │
            │  ┌────────────VPC─────────────┐     │
            │  │     10.0.0.0/16            │     │
@@ -140,7 +140,7 @@ Project ORE의 인프라는 **초기 비용과 운영 복잡성을 최소화**�
 VPC Design:
   CIDR Block: 10.0.0.0/16
 
-  Availability Zones: 3 (ap-northeast-2a/2b/2c)
+  Availability Zones: 3 (us-west-1a/1b/1c)
 
   Subnets:
     Public (10.0.1-3.0/24):
@@ -185,7 +185,7 @@ VPC Design:
 
 **설계 근거:**
 
-**3 AZ 배포 이유:** AWS Seoul 리전의 3개 가용 영역을 모두 활용하여 최대한의 가용성을 확보합니다. 2 AZ만 사용할 경우 33% 가용성 손실이 발생하지만, 3 AZ는 단일 AZ 장애 시에도 66%의 용량을 유지할 수 있습니다.
+**3 AZ 배포 이유:** AWS N. California 리전의 3개 가용 영역을 모두 활용하여 최대한의 가용성을 확보합니다. 2 AZ만 사용할 경우 33% 가용성 손실이 발생하지만, 3 AZ는 단일 AZ 장애 시에도 66%의 용량을 유지할 수 있습니다.
 
 **서브넷 티어링 전략:**
 
@@ -436,7 +436,7 @@ Hardware Specifications:
     Cooling: Liquid cooled
 
   Edge Servers (2x):
-    Location: Seoul IX, Busan IX
+    Location: Bay Area IX, LA IX
     Model: HPE ProLiant DL360
     CPU: Intel Xeon Gold 6348 (28 cores)
     RAM: 64GB DDR4
@@ -785,9 +785,9 @@ module "vpc" {
   cidr_block  = "10.0.0.0/16"
 
   availability_zones = [
-    "ap-northeast-2a",
-    "ap-northeast-2b",
-    "ap-northeast-2c"
+    "us-west-1a",
+    "us-west-1b",
+    "us-west-1c"
   ]
 
   public_subnet_cidrs = [
@@ -828,7 +828,7 @@ Backend Configuration:
   S3 Backend:
     Bucket: ore-terraform-state-${ACCOUNT_ID}
     Key: ${ENVIRONMENT}/terraform.tfstate
-    Region: ap-northeast-2
+    Region: us-west-1
     Encrypt: true
 
   State Locking:
@@ -1248,7 +1248,7 @@ DR Scenarios:
     - RTO: < 5 minutes
 
   Region Failure:
-    - Pilot light in Seoul/Tokyo
+    - Pilot light in N. California/Oregon
     - Database replication
     - DNS failover
     - RTO: 1 hour
@@ -1587,7 +1587,7 @@ Documentation:
 
 ```yaml
 Infrastructure:
-  - Single region (Seoul)
+  - Single region (N. California)
   - ECS Fargate only
   - Managed services
   - Basic monitoring
