@@ -111,8 +111,8 @@ variable "on_premise_cidr" {
 locals {
   azs = data.aws_availability_zones.available.names
 
-  # Cost optimization: single NAT for dev/staging
-  nat_gateway_count = var.environment == "production" ? 3 : 1
+  # Cost optimization: single NAT for dev
+  nat_gateway_count = var.environment == "prod" ? 3 : 1
 
   # Subnet calculation
   public_subnets   = [for i in range(3) : cidrsubnet(var.cidr_block, 8, i)]
@@ -228,7 +228,7 @@ output "wireguard_public_ip" {
 
 ## Cost Optimization Features:
 
-1. Single NAT Gateway for dev/staging
+1. Single NAT Gateway for dev
 2. Spot instances support via tags
 3. VPC endpoints for AWS services (S3, ECR)
 4. Flow logs to CloudWatch (cheaper than S3)
@@ -383,12 +383,12 @@ resource "aws_rds_cluster" "main" {
 
   # Serverless v2 scaling
   serverlessv2_scaling_configuration {
-    max_capacity = var.environment == "production" ? 16 : 2
-    min_capacity = var.environment == "production" ? 0.5 : 0.5
+    max_capacity = var.environment == "prod" ? 16 : 2
+    min_capacity = var.environment == "prod" ? 0.5 : 0.5
   }
 
   # Backup
-  backup_retention_period      = var.environment == "production" ? 30 : 7
+  backup_retention_period      = var.environment == "prod" ? 30 : 7
   preferred_backup_window      = "03:00-04:00"
   preferred_maintenance_window = "sun:04:00-sun:05:00"
 
@@ -402,8 +402,8 @@ resource "aws_rds_cluster" "main" {
   vpc_security_group_ids = [aws_security_group.rds.id]
 
   # Skip final snapshot for dev
-  skip_final_snapshot       = var.environment != "production"
-  final_snapshot_identifier = var.environment == "production" ? "${var.environment}-aurora-final-snapshot-${formatdate("YYYY-MM-DD-hhmm", timestamp())}" : null
+  skip_final_snapshot       = var.environment != "prod"
+  final_snapshot_identifier = var.environment == "prod" ? "${var.environment}-aurora-final-snapshot-${formatdate("YYYY-MM-DD-hhmm", timestamp())}" : null
 
   tags = {
     Name        = "${var.environment}-aurora-cluster"
@@ -417,7 +417,7 @@ resource "aws_rds_cluster" "main" {
 
 1. Serverless v2 scales to zero
 2. Auto-pause for dev environment
-3. Single instance for dev/staging
+3. Single instance for dev
 4. Shorter backup retention for non-prod
 
 ````
@@ -1067,7 +1067,6 @@ on:
   push:
     branches:
       - main
-      - staging
       - develop
     paths:
       - 'infrastructure/**'
@@ -1092,9 +1091,7 @@ jobs:
         id: env
         run: |
           if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            echo "environment=production" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
-            echo "environment=staging" >> $GITHUB_OUTPUT
+            echo "environment=prod" >> $GITHUB_OUTPUT
           else
             echo "environment=dev" >> $GITHUB_OUTPUT
           fi
@@ -1181,7 +1178,7 @@ name: Service Deployment
 
 on:
   push:
-    branches: [main, staging, develop]
+    branches: [main, develop]
     paths:
       - 'services/**'
       - '.github/workflows/service-deploy.yml'
@@ -1635,13 +1632,13 @@ resource "aws_lambda_function" "on_premise_power_mgmt" {
 
 # Schedule for on-premise power management
 resource "aws_cloudwatch_event_rule" "on_premise_schedule" {
-  count               = var.environment != "production" ? 1 : 0
+  count               = var.environment != "prod" ? 1 : 0
   name                = "${var.environment}-on-premise-schedule"
   schedule_expression = "cron(0 19 ? * MON-FRI *)"  # Power down at 7 PM
 }
 
 resource "aws_cloudwatch_event_rule" "on_premise_startup" {
-  count               = var.environment != "production" ? 1 : 0
+  count               = var.environment != "prod" ? 1 : 0
   name                = "${var.environment}-on-premise-startup"
   schedule_expression = "cron(0 7 ? * MON-FRI *)"   # Power up at 7 AM
 }
@@ -1650,7 +1647,7 @@ resource "aws_cloudwatch_event_rule" "on_premise_startup" {
 ## Cost Saving Features:
 
 1. Fargate Spot (70% savings)
-2. Auto-stop dev/staging resources
+2. Auto-stop dev resources
 3. On-premise power management
 4. S3 lifecycle policies
 5. Budget alerts for hybrid costs
@@ -1964,8 +1961,7 @@ infrastructure/
 │   │   └── monitoring/
 │   ├── environments/
 │   │   ├── dev/
-│   │   ├── staging/
-│   │   └── production/
+│   │   └── prod/
 │   └── global/
 ├── ansible/
 │   ├── playbooks/
@@ -1979,8 +1975,7 @@ infrastructure/
 │   │   ├── monitoring/
 │   │   └── backup/
 │   ├── inventory/
-│   │   ├── production.yml
-│   │   └── staging.yml
+│   │   ├── prod.yml
 │   └── group_vars/
 ├── scripts/
 │   ├── init.sh
@@ -2002,4 +1997,3 @@ _"클라우드와 온프레미스의 완벽한 조화"_
 _Version: 1.1_
 _Last Updated: 2024-12-20_
 _Architecture: AWS (85%) + On-premise (15%)_
-

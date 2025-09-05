@@ -1442,7 +1442,7 @@ impl AntiCheatEngine {
 ```yaml
 Compute:
   ECS Fargate:
-    Cluster: ore-production
+    Cluster: ore-prod
     Services:
       - location-service: 2-10 tasks
       - game-service: 2-10 tasks
@@ -1556,8 +1556,7 @@ Infrastructure as Code:
       - monitoring/
     - environments/
       - dev/
-      - staging/
-      - production/
+      - prod/
 ```
 
 ### 9.3 Monitoring & Observability
@@ -1861,4 +1860,3 @@ Service Template:
 _Version: 5.0_  
 _Last Updated: 2024-12-20_  
 _Architecture Decision Records (ADR) available in /docs/architecture/_
-

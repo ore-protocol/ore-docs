@@ -746,8 +746,7 @@ infrastructure/
 │   │   │   ├── variables.tf
 │   │   │   ├── outputs.tf
 │   │   │   └── terraform.tfvars
-│   │   ├── staging/
-│   │   └── production/
+│   │   └── prod/
 │   ├── modules/
 │   │   ├── networking/
 │   │   │   ├── vpc.tf
@@ -1376,7 +1375,7 @@ AWS Cost Explorer:
 Cost Allocation:
   Tags:
     - Project: ORE
-    - Environment: dev/staging/prod
+    - Environment: dev/prod
     - Service: location/game/auth
     - Team: backend/frontend
     - Cost-Center: engineering
@@ -1526,13 +1525,7 @@ Environments:
     - Reduced redundancy
     - Auto-shutdown at night
     - Cost: ~$200/month
-
-  Staging:
-    - Production-like setup
-    - Multi-AZ deployment
-    - Full monitoring
-    - Load testing capable
-    - Cost: ~$500/month
+    - Branch: dev
 
   Production:
     - Full HA setup
@@ -1540,9 +1533,10 @@ Environments:
     - Auto-scaling enabled
     - Complete monitoring
     - Cost: $800-5000/month
+    - Branch: main
 
 Environment Promotion:
-  - Git flow branching
+  - Git flow branching (dev → main)
   - Automated testing
   - Manual approval gates
   - Blue-green deployments
@@ -1805,4 +1799,3 @@ _Version: 1.1_
 _Last Updated: 2024-12-20_  
 _Infrastructure Decision Records (IDR) available in /docs/infrastructure/_
 _Design Rationale added for transparency and education_
-
