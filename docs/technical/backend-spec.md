@@ -400,6 +400,55 @@ Unity 로컬 캐싱:
 
 ## 4. Core Services (Rust) - 성능 크리티컬
 
+### 4.0 Rust Coding Standards
+
+**Module Organization:**
+
+```rust
+// ✅ Explicit module declarations only
+pub mod game;
+pub mod rules;
+
+// ❌ No re-exports in mod.rs files
+// pub use game::GameService;  // DON'T DO THIS
+
+// ✅ Use explicit imports in consuming code instead
+use crate::services::game::GameService;
+use crate::models::player::PlayerState;
+```
+
+**Import Conventions:**
+
+- Always use explicit imports: `use crate::services::game::GameService`
+- No re-exports in `mod.rs` files to maintain clear dependency tracking
+- Prefer explicit over implicit to improve AI code analysis and maintainability
+
+**Error Handling:**
+
+```rust
+// ✅ Use thiserror for domain-specific errors
+#[derive(Debug, thiserror::Error)]
+pub enum GameError {
+    #[error("Database operation failed: {0}")]
+    Database(#[from] sqlx::Error),
+
+    #[error("Invalid coin collection: {reason}")]
+    InvalidCollection { reason: String },
+}
+```
+
+**Async Patterns:**
+
+```rust
+// ✅ Use Result<T> for all fallible operations
+pub async fn collect_coin(&self, cmd: CollectCoinCommand) -> Result<CollectResult, GameError> {
+    // Implementation
+}
+
+// ✅ Use Arc<T> for shared state across async tasks
+player_states: Arc<DashMap<PlayerId, PlayerState>>,
+```
+
 ### 4.1 Location Service
 
 ```rust
