@@ -994,8 +994,60 @@ func (s *AnalyticsService) GetRealTimeMetrics() (*Metrics, error) {
 
 ### 6.1 PostgreSQL (Primary Database)
 
+#### 6.1.1 Database Schema Management Strategy
+
+The ORE platform uses an **ORM-first approach** for database schema management:
+
+```yaml
+ORM-First Database Strategy:
+  Philosophy: "Let the services own their schemas"
+
+  Implementation:
+    - No static table definitions in infrastructure/docker/postgres/init.sql
+    - Each service manages its own database schema via ORM auto-migration
+    - Database initialization only creates extensions and basic setup
+
+  Service-Specific Schema Management:
+    Rust Services (SQLx):
+      - Database migrations in service/migrations/ directory
+      - Versioned migration files: 001_initial.up.sql, 001_initial.down.sql
+      - Applied via SQLx migrate during service startup
+
+    Go Services (GORM):
+      - Auto-migration via GORM during service startup
+      - Struct-based schema definitions
+      - GORM handles CREATE TABLE, ALTER TABLE automatically
+
+  Benefits:
+    - No schema conflicts between services
+    - Independent service deployments
+    - Schema evolution tied to service releases
+    - Simplified database setup for development
+
+  Trade-offs (and Modern Solutions):
+    ❌ Coordination for shared tables:
+      ✅ Solution: Event-driven architecture eliminates most sharing needs
+
+    ❌ Initial setup takes longer:
+      ✅ Solution: 30 seconds per service vs hours of schema conflicts
+
+    ❌ Distributed schema documentation:
+      ✅ Solution: Each service documents its own schema (better ownership)
+
+  Industry Context:
+    - ORM-first is the 2025 standard for microservices (Netflix, Spotify, Uber, Stripe)
+    - Eliminates deployment coupling between services
+    - Enables true "database per service" microservices principle
+    - Static SQL schemas are considered legacy anti-pattern in modern microservices
+```
+
+#### 6.1.2 Database Schema Structure
+
+**Note:** The following schema represents the logical structure. Actual tables are created by each service's ORM auto-migration during startup.
+
 ```sql
--- Core domain tables
+-- Core domain tables (managed by respective services)
+-- users table: Created by auth-service via GORM auto-migration
 CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     wallet_address VARCHAR(42) UNIQUE,
@@ -1007,7 +1059,7 @@ CREATE TABLE users (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Location domain
+-- Location domain: Created by location-service via SQLx migrations
 CREATE TABLE locations (
     id BIGSERIAL PRIMARY KEY,
     user_id UUID REFERENCES users(id),
@@ -1017,7 +1069,7 @@ CREATE TABLE locations (
     recorded_at TIMESTAMPTZ DEFAULT NOW()
 ) PARTITION BY RANGE (recorded_at);
 
--- Game domain
+-- Game domain: Created by game-service via SQLx migrations
 CREATE TABLE coins (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     location GEOGRAPHY(POINT, 4326) NOT NULL,
@@ -1030,6 +1082,7 @@ CREATE TABLE coins (
     collected_at TIMESTAMPTZ
 );
 
+-- Game domain: Created by game-service via SQLx migrations
 CREATE TABLE pickaxes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID REFERENCES users(id),
@@ -1039,7 +1092,7 @@ CREATE TABLE pickaxes (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Genesis 1000
+-- User domain: Created by user-service via GORM auto-migration
 CREATE TABLE genesis_members (
     user_id UUID PRIMARY KEY REFERENCES users(id),
     genesis_number INTEGER UNIQUE CHECK (genesis_number BETWEEN 1 AND 1000),
@@ -1050,7 +1103,7 @@ CREATE TABLE genesis_members (
     joined_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Ad domain
+-- Ad domain: Created by ad-service via GORM auto-migration
 CREATE TABLE ad_campaigns (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     advertiser_id UUID REFERENCES users(id),
