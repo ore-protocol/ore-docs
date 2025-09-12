@@ -569,6 +569,11 @@ Task Definitions:
           - containerPort: 8080
             protocol: tcp
 
+        # Migration-First Database Pattern (2025 Standard)
+        # - Service runs embedded SQLx migrations on startup
+        # - No external migration dependencies required  
+        # - Database schema managed via versioned migration files
+
         environment:
           - name: RUST_LOG
             value: info
@@ -1795,7 +1800,12 @@ Review Cycle:
 
 ---
 
-_Version: 1.1_  
-_Last Updated: 2024-12-20_  
+_Version: 1.2_  
+_Last Updated: 2025-09-12_  
 _Infrastructure Decision Records (IDR) available in /docs/infrastructure/_
-_Design Rationale added for transparency and education_
+
+**v1.2 Changes (September 2025):**
+- **Migration-First Database Deployment**: Updated ECS task definitions to reflect embedded SQLx migrations  
+- **Container Startup Pattern**: Services now handle database schema creation automatically on startup
+- **No External Migration Dependencies**: Removed need for separate migration containers or init scripts
+- **Production-Ready Schema Management**: Infrastructure supports rollback-capable database deployments
