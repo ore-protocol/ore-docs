@@ -51,7 +51,7 @@ Grid System:
   Cell Type: S2 Geometry Level 15
   Cell Size: ~100m x 100m
   Max Ores per Cell: 5
-  Collection Range: 10 meters
+  Collection Range: 10 meters (regular users) / 3 meters (Genesis 1000 members)
 
 Base Spawn Formula:
   ores_per_cell = base_rate * area_modifier * time_modifier * weather_modifier
@@ -59,7 +59,7 @@ Base Spawn Formula:
 ```
 
 **설계 의도:**
-S2 Geometry는 Pokémon GO에서 검증된 시스템으로, 지구를 균등한 셀로 나누어 공정한 분포를 보장합니다. 100m x 100m는 도시 블록 하나 정도로, 한 지역에서 5-10분 정도 머물 가치를 제공합니다. 10m 수집 거리는 GPS 오차(±5m)를 고려하면서도 실제로 가까이 가야 하는 긴장감을 유지합니다.
+S2 Geometry는 Pokémon GO에서 검증된 시스템으로, 지구를 균등한 셀로 나누어 공정한 분포를 보장합니다. 100m x 100m는 도시 블록 하나 정도로, 한 지역에서 5-10분 정도 머물 가치를 제공합니다. 수집 거리는 일반 사용자 10m, Genesis 1000 멤버 3m로 차별화되어 Genesis 멤버에게 더 정확한 위치 추적 경험을 제공하며, GPS 오차(±5m)를 고려하면서도 실제로 가까이 가야 하는 긴장감을 유지합니다.
 
 ### 2.3 Area Modifiers
 
@@ -556,16 +556,16 @@ Time to T3 Tool: 8-27 days (event dependent)
 
 ### 14.1 System Constants
 
-| Parameter             | Value   | Description                 |
-| --------------------- | ------- | --------------------------- |
-| GPS_UPDATE_INTERVAL   | 5s      | Location polling rate       |
-| MIN_MOVEMENT_DISTANCE | 5m      | Minimum distance for update |
-| COLLECTION_RADIUS     | 10m     | Ore collection range        |
-| CHAIN_RADIUS          | 15m     | Chain mining range          |
-| RESONANCE_CHECK       | 30s     | Guild field update          |
-| MAX_SPEED             | 30 km/h | Anti-cheat speed limit      |
-| SESSION_TIMEOUT       | 30 min  | Inactive session limit      |
-| SYNC_INTERVAL         | 30s     | Server sync frequency       |
+| Parameter             | Value    | Description                                   |
+| --------------------- | -------- | --------------------------------------------- |
+| GPS_UPDATE_INTERVAL   | 5s       | Location polling rate                         |
+| MIN_MOVEMENT_DISTANCE | 5m       | Minimum distance for update                   |
+| COLLECTION_RADIUS     | 10m / 3m | Ore collection range (Regular / Genesis 1000) |
+| CHAIN_RADIUS          | 15m      | Chain mining range                            |
+| RESONANCE_CHECK       | 30s      | Guild field update                            |
+| MAX_SPEED             | 30 km/h  | Anti-cheat speed limit                        |
+| SESSION_TIMEOUT       | 30 min   | Inactive session limit                        |
+| SYNC_INTERVAL         | 30s      | Server sync frequency                         |
 
 **설계 의도:**
 Chain과 Resonance 시스템을 위한 추가 파라미터를 설정했습니다. 15m Chain 반경은 실제로 가까이 모여야 하는 물리적 근접성을 요구합니다.
@@ -623,4 +623,3 @@ _This specification defines pure gameplay mechanics with design rationale. All v
 _Version: 2.0_
 _Last Updated: 2024-12-20_
 _Major Addition: Cooperative systems, AR discovery mechanics, Digital weather, Special zones_
-

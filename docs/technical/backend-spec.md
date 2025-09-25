@@ -144,12 +144,19 @@ User Domain (Go):
   독립성: Auth와 협력
 
 Auth Domain (Go):
-  책임: 인증/인가
-  - JWT 토큰 관리
+  책임: 인증/인가 (RS256 JWT)
+  - RSA 키 자동 생성 및 JWT 토큰 발급
   - OAuth2 소셜 로그인
-  - 권한 관리
-  - 세션 관리
+  - Genesis 1000 특별 혜택 처리
+  - 역할 기반 접근 제어
+  - Redis 기반 세션 관리
   독립성: 게이트웨이 역할
+
+  Genesis 1000 특별 혜택:
+  - 토큰 유효기간: 72시간 (일반 24시간)
+  - 보상 배수: 2.0x
+  - 자동 수집 범위: 3m (일반 10m)
+  - 우선 지원 및 특별 UI
 
 Ad Domain (Go):
   책임: 광고 시스템
@@ -913,48 +920,64 @@ func (s *UserService) GetProfile(userID string) (*UserProfile, error) {
 type AuthService struct {
     db           *sqlx.DB
     redis        *redis.ClusterClient
-    jwtSecret    []byte
+    privateKey   *rsa.PrivateKey  // RSA private key for RS256
     kafka        *kafka.Producer
 }
 
-// Enhanced JWT with Genesis status
+// Enhanced JWT with Genesis status and comprehensive claims
 func (s *AuthService) IssueToken(userID string) (*TokenPair, error) {
-    // Get user with Genesis status
+    // Get user with Genesis status and detailed profile
     var user struct {
-        ID        string
-        IsGenesis bool
-        Role      string
+        ID              uuid.UUID
+        Email           string
+        Username        string
+        Role            string
+        IsGenesis       bool
+        BonusMultiplier float64
+        AutoCollectRange int
     }
 
     err := s.db.Get(&user, `
-        SELECT u.id,
+        SELECT u.id, u.email, u.username, u.role,
                CASE WHEN gm.user_id IS NOT NULL THEN true ELSE false END as is_genesis,
-               u.role
+               CASE WHEN gm.user_id IS NOT NULL THEN 2.0 ELSE 1.0 END as bonus_multiplier,
+               CASE WHEN gm.user_id IS NOT NULL THEN 3 ELSE 10 END as auto_collect_range
         FROM users u
         LEFT JOIN genesis_members gm ON u.id = gm.user_id
         WHERE u.id = $1`, userID)
 
-    // Create claims with Genesis benefits
+    // Create comprehensive claims with Genesis benefits
     claims := jwt.MapClaims{
-        "sub": userID,
-        "role": user.Role,
-        "is_genesis": user.IsGenesis,
-        "iat": time.Now().Unix(),
-        "exp": time.Now().Add(s.getTokenDuration(user.IsGenesis)).Unix(),
+        "user_id":            user.ID.String(),
+        "email":              user.Email,
+        "username":           user.Username,
+        "role":               user.Role,
+        "is_genesis":         user.IsGenesis,
+        "bonus_multiplier":   user.BonusMultiplier,
+        "auto_collect_range": user.AutoCollectRange,
+        "iat":                time.Now().Unix(),
+        "exp":                time.Now().Add(s.getTokenDuration(user.IsGenesis)).Unix(),
+        "iss":                "ore-auth-service",
+        "aud":                "ore-platform",
     }
 
-    // Genesis members get longer token life
-    accessToken := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-    accessString, _ := accessToken.SignedString(s.jwtSecret)
+    // Use RS256 asymmetric encryption for enhanced security
+    accessToken := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+    accessString, err := accessToken.SignedString(s.privateKey)
+    if err != nil {
+        return nil, fmt.Errorf("failed to sign token: %w", err)
+    }
 
-    // Refresh token
+    // Refresh token with longer expiry
     refreshToken := generateRefreshToken()
     s.redis.Set(fmt.Sprintf("refresh:%s", refreshToken), userID, 7*24*time.Hour)
 
-    // Publish login event
+    // Publish login event with Genesis information
     s.kafka.Produce("events.auth.login", map[string]interface{}{
         "user_id": userID,
+        "email": user.Email,
         "is_genesis": user.IsGenesis,
+        "bonus_multiplier": user.BonusMultiplier,
         "timestamp": time.Now(),
     })
 
@@ -966,9 +989,24 @@ func (s *AuthService) IssueToken(userID string) (*TokenPair, error) {
 
 func (s *AuthService) getTokenDuration(isGenesis bool) time.Duration {
     if isGenesis {
-        return 30 * time.Minute // Genesis: 30 min
+        return 72 * time.Hour // Genesis: 72 hours (generous for beta testing)
     }
-    return 15 * time.Minute // Regular: 15 min
+    return 24 * time.Hour // Regular: 24 hours
+}
+
+// Initialize RSA key pair for JWT signing (auto-generated on startup)
+func (s *AuthService) initializeKeys() error {
+    privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+    if err != nil {
+        return fmt.Errorf("failed to generate RSA key: %w", err)
+    }
+    s.privateKey = privateKey
+
+    // Store public key in Redis for gateway service validation
+    publicKeyPEM := s.exportPublicKeyPEM(&privateKey.PublicKey)
+    s.redis.Set("jwt:public_key", publicKeyPEM, 0) // No expiry
+
+    return nil
 }
 ```
 
@@ -1144,7 +1182,7 @@ type GatewayService struct {
 
 type GatewayConfig struct {
     Port           string                    `json:"port"`
-    JWTSecret      string                    `json:"jwt_secret"`
+    Redis          *redis.ClusterClient     // Redis client for JWT public key retrieval
     Services       map[string]ServiceConfig  `json:"services"`
     RateLimit      RateLimitConfig          `json:"rate_limit"`
     CircuitBreaker CircuitBreakerConfig     `json:"circuit_breaker"`
@@ -1209,7 +1247,7 @@ func NewGatewayService(config *GatewayConfig) *GatewayService {
     return gateway
 }
 
-// JWT Authentication Middleware with Genesis support
+// JWT Authentication Middleware with RS256 and comprehensive Genesis support
 func (g *GatewayService) AuthMiddleware() fiber.Handler {
     return func(c *fiber.Ctx) error {
         // Extract Bearer token from Authorization header
@@ -1232,47 +1270,83 @@ func (g *GatewayService) AuthMiddleware() fiber.Handler {
             })
         }
 
-        // Validate JWT token with shared secret
+        // Get public key from Redis (set by Auth Service)
+        publicKeyPEM, err := g.redis.Get("jwt:public_key").Result()
+        if err != nil {
+            return c.Status(503).JSON(fiber.Map{
+                "error": "Authentication service unavailable",
+                "code":  "AUTH_SERVICE_ERROR",
+            })
+        }
+
+        publicKey, err := g.parsePublicKeyPEM(publicKeyPEM)
+        if err != nil {
+            return c.Status(500).JSON(fiber.Map{
+                "error": "Invalid public key configuration",
+                "code":  "AUTH_CONFIG_ERROR",
+            })
+        }
+
+        // Validate JWT token with RSA public key (RS256)
         token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-            if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+            if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
                 return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
             }
-            return []byte(g.config.JWTSecret), nil
+            return publicKey, nil
         })
 
         if err != nil || !token.Valid {
             return c.Status(401).JSON(fiber.Map{
                 "error": "Invalid or expired token",
                 "code":  "AUTH_INVALID_TOKEN",
+                "details": err.Error(),
             })
         }
 
-        // Extract user claims and inject context
+        // Extract comprehensive user claims and inject context
         if claims, ok := token.Claims.(jwt.MapClaims); ok {
             userID := claims["user_id"].(string)
+            email := claims["email"].(string)
+            username := claims["username"].(string)
             userRole := claims["role"].(string)
             isGenesis := false
+            bonusMultiplier := 1.0
+            autoCollectRange := 10
 
-            // Check Genesis status for special benefits
+            // Extract Genesis-specific claims
             if genesisFlag, exists := claims["is_genesis"]; exists {
                 isGenesis = genesisFlag.(bool)
+            }
+            if bonus, exists := claims["bonus_multiplier"]; exists {
+                bonusMultiplier = bonus.(float64)
+            }
+            if collectRange, exists := claims["auto_collect_range"]; exists {
+                autoCollectRange = int(collectRange.(float64))
             }
 
             // Set locals for handler access
             c.Locals("user_id", userID)
+            c.Locals("email", email)
+            c.Locals("username", username)
             c.Locals("user_role", userRole)
             c.Locals("is_genesis", isGenesis)
+            c.Locals("bonus_multiplier", bonusMultiplier)
+            c.Locals("auto_collect_range", autoCollectRange)
 
-            // Forward user context to downstream services
+            // Forward comprehensive user context to downstream services
             c.Set("X-User-ID", userID)
+            c.Set("X-User-Email", email)
+            c.Set("X-User-Username", username)
             c.Set("X-User-Role", userRole)
             c.Set("X-Auth-Token", tokenString)
 
-            // Genesis member benefits forwarding
+            // Genesis member benefits forwarding with correct values
             if isGenesis {
                 c.Set("X-User-Genesis", "true")
-                c.Set("X-Bonus-Multiplier", "2.0")
-                c.Set("X-Auto-Collect-Range", "10") // 10m vs 3m for regular users
+                c.Set("X-Bonus-Multiplier", fmt.Sprintf("%.1f", bonusMultiplier))  // 2.0
+                c.Set("X-Auto-Collect-Range", fmt.Sprintf("%d", autoCollectRange))   // 3m for Genesis
+            } else {
+                c.Set("X-Auto-Collect-Range", "10") // 10m for regular users
             }
         }
 
@@ -1834,9 +1908,14 @@ var startTime = time.Now()
 
 // Configuration Management
 func LoadGatewayConfig() *GatewayConfig {
+    // Initialize Redis client for JWT public key retrieval
+    redis := redis.NewClusterClient(&redis.ClusterOptions{
+        Addrs: strings.Split(getEnv("REDIS_CLUSTER_ADDRS", "localhost:6379"), ","),
+    })
+
     return &GatewayConfig{
         Port:      getEnv("GATEWAY_PORT", "8080"),
-        JWTSecret: getEnv("JWT_SECRET", "your-secret-key"),
+        Redis:     redis,
         Services: map[string]ServiceConfig{
             "auth": {
                 Name:        "Auth Service",
@@ -2368,7 +2447,7 @@ Layer 1 - Network:
   - Security groups (minimal ports)
 
 Layer 2 - Application:
-  - JWT authentication (RS256)
+  - JWT authentication (RS256 asymmetric encryption with auto-generated RSA keys)
   - OAuth2 for social login
   - API rate limiting (per user/IP)
   - Input validation (all endpoints)
@@ -2886,10 +2965,10 @@ _Architecture Decision Records (ADR) available in /docs/architecture/_
 **v5.3 Changes (September 2025):**
 
 - **Gateway Service Implementation (Section 5.5)**: Added comprehensive API Gateway implementation with production-ready patterns
-- **Authentication Integration**: JWT middleware with Genesis 1000 member benefits and user context injection
+- **Authentication Integration**: RS256 JWT middleware with comprehensive Genesis 1000 member benefits (2x rewards, 3m auto-collect range, 72h token expiry)
 - **Service Proxy Architecture**: Circuit breaker, rate limiting, and intelligent error handling for all microservices
 - **Anti-Cheat Rate Limiting**: Location update throttling (2 req/min) to prevent GPS spoofing
-- **WebSocket Proxy**: Real-time service integration with token-based authentication
+- **WebSocket Proxy**: Real-time service integration with RS256 JWT token validation
 - **Health Monitoring**: Automatic service discovery and health checks with 30-second intervals
 - **Distributed Tracing**: Request ID propagation and performance metrics collection
 - **Production Configuration**: Complete environment-based configuration with service discovery
