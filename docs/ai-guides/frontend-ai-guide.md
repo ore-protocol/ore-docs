@@ -7,7 +7,7 @@ _Unity AR 게임 개발을 위한 AI 활용 실전 가이드_
 - **목적**: Claude Code와 AI 도구를 활용한 Unity 프론트엔드 효율적 개발
 - **독자**: Unity 개발자, AI 에이전트, 기술 리드
 - **관련 문서**: ore-frontend-spec.md, ore-game-ux-guide.md, ai-native-team-strategy.md
-- **Unity 버전**: 2023.3 LTS
+- **Unity 버전**: 6.0 LTS
 - **주요 AI 도구**: Claude Code (Primary), Cursor (Secondary), Copilot (Support)
 - **최종 수정**: 2024-12-20
 - **버전**: 2.0
@@ -66,9 +66,9 @@ Create a Unity C# script for ARInteractionManager with these requirements:
 
 ## Component Name: ARInteractionManager
 
-## Unity Version: 2023.3 LTS
+## Unity Version: 6.0 LTS
 
-## Dependencies: AR Foundation 5.1, DOTween Pro
+## Dependencies: AR Foundation 6.0+, DOTween Pro
 
 ## Core Functionality:
 
@@ -137,7 +137,7 @@ namespace ORE.AR
 ````
 
 #### 💡 프롬프트 작성 팁
-- **구체적인 버전 명시**: Unity 2023.3 LTS, AR Foundation 5.1
+- **구체적인 버전 명시**: Unity 6.0 LTS, AR Foundation 6.0+
 - **성능 목표 정량화**: 30 FPS, 100개 오브젝트, 50MB 메모리
 - **의존성 명확화**: 필요한 패키지와 플러그인 명시
 - **테스트 가능성**: 에디터에서 테스트 가능한 구조 요구
@@ -1792,7 +1792,7 @@ Create Unity LocationManager for MVP:
 
 Implement AR coin collection:
 
-- AR Foundation 5.1
+- AR Foundation 6.0+
 - Max 100 coins visible
 - 10m interaction radius
 - Object pooling required
@@ -2034,5 +2034,4 @@ _"반복적 개선을 통한 코드 진화"_
 _Version: 2.0_
 _Last Updated: 2024-12-20_
 _Major Updates: 반복적 개선 가이드, UI Toolkit 컴포넌트 추가, 프롬프트 성숙도 모델_
-_Target Unity: 2023.3 LTS_
-
+_Target Unity: 6.0 LTS_

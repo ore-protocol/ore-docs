@@ -95,7 +95,7 @@ Post-MVP Phase (2026 Q1):
   - 일일 이동거리 추적
 
 AR 시스템:
-  - AR Foundation 5.1 기반 구현
+  - AR Foundation 6.0+ 기반 구현
   - 3D 코인 모델 렌더링 (LOD 3단계)
   - 평면 인식 및 오클루전 처리
   - 터치 인터랙션 (레이캐스팅)
@@ -180,12 +180,12 @@ Phase 2 (Post-MVP):
 
 ```yaml
 Game Engine:
-  - Unity 2023.3 LTS
+  - Unity 6.0 LTS
   - Universal Render Pipeline (URP)
   - IL2CPP 빌드
 
 AR Framework:
-  - AR Foundation 5.1
+  - AR Foundation 6.0+
   - ARCore (Android) / ARKit (iOS)
   - AR Occlusion Manager
 

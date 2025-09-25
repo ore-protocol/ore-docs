@@ -54,9 +54,9 @@ _Open Reality Engine: AI-Native 개발로 구현하는 확장 가능한 AR P2E �
   - Android Pixel 7 (테스트)
 
 핵심 개발 도구:
-  - Unity 2023.3 LTS
-  - Rust 1.75+ (rustup, cargo)
-  - Go 1.21+
+  - Unity 6.0 LTS
+  - Rust 1.90+ (rustup, cargo)
+  - Go 1.25+
   - Visual Studio Code + rust-analyzer
   - Docker Desktop
 
@@ -128,9 +128,9 @@ Claude Code 프롬프트:
 
 ```yaml
 Unity 프로젝트:
-  - Unity 2023.3 LTS 프로젝트 생성
+  - Unity 6.0 LTS 프로젝트 생성
   - URP (Universal Render Pipeline) 설정
-  - AR Foundation 5.1 패키지 설치
+  - AR Foundation 6.0+ 패키지 설치
   - Mapbox SDK 통합
   - 기본 씬 구성 (로그인, 메인, AR)
 
@@ -1275,7 +1275,7 @@ cat > Cargo.toml << EOF
 [workspace]
 members = [
     "backend/location-service",
-    "backend/game-service", 
+    "backend/game-service",
     "backend/realtime-service",
 ]
 EOF
@@ -1295,4 +1295,3 @@ git add . && git commit -m "Initial project structure - MVP without blockchain"
 **"Build Fast with Go, Build Right with Rust, Scale Forever"**
 
 이 로드맵은 4개월 동안 블록체인 없이도 완전한 AR P2E 게임을 만들고, 2026년에 토큰 이코노미를 추가할 준비를 완료합니다.
-

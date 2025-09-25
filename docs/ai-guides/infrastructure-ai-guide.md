@@ -1258,7 +1258,7 @@ Create optimized multi-stage Dockerfile for Rust service:
 ## Implementation:
 ```dockerfile
 # Build stage
-FROM rust:1.75-alpine AS builder
+FROM rust:1.90-alpine AS builder
 
 # Install build dependencies
 RUN apk add --no-cache \
@@ -1347,7 +1347,7 @@ Create optimized Dockerfile for Go service using distroless:
 
 ```dockerfile
 # Build stage
-FROM golang:1.21-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 # Install certificates
 RUN apk add --no-cache ca-certificates git

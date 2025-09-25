@@ -24,8 +24,8 @@ Project ORE의 Unity 클라이언트는 AR Foundation 기반의 위치 기반 P2
 
 ```yaml
 개발 방식:
-  - Unity 2023.3 LTS (2025년 9월 기준 안정버전)
-  - AR Foundation 5.1
+  - Unity 6.0 LTS (2025년 9월 기준 최신 안정버전)
+  - AR Foundation 6.0+
   - UI Toolkit (uGUI 대체)
   - Custom Networking (WebSocket + REST)
 
@@ -252,7 +252,7 @@ public abstract class GameCommand
 ### 2.1 AR Foundation Setup
 
 **설계 근거:**
-AR Foundation 5.1을 사용하여 ARKit/ARCore의 차이를 추상화합니다. 필수 기능만 사용하여 디바이스 호환성을 최대화하고, 선택적 기능은 폴백을 구현합니다.
+AR Foundation 6.0+을 사용하여 ARKit/ARCore의 차이를 추상화합니다. 필수 기능만 사용하여 디바이스 호환성을 최대화하고, 선택적 기능은 폴백을 구현합니다.
 
 **성능 최적화 전략:**
 
@@ -261,7 +261,7 @@ AR Foundation 5.1을 사용하여 ARKit/ARCore의 차이를 추상화합니다. 
 - People Occlusion은 iOS A12+ 칩셋만 활성화
 
 ```yaml
-AR Foundation 5.1 Configuration:
+AR Foundation 6.0+ Configuration:
 
   AR Session (필수):
     - Auto-install AR software: true
@@ -1938,7 +1938,7 @@ Addressables로 동적 콘텐츠 로딩을 구현하여 앱 크기를 최소화�
 1. **서버 권위적**: 클라이언트는 표시만, 검증은 서버
 2. **네트워크 필수**: 오프라인 = 게임 중단
 3. **성능 우선**: 60 FPS, 500MB RAM, 10%/hr 배터리
-4. **Unity 2023.3 LTS**: 안정성 검증된 버전
+4. **Unity 6.0 LTS**: 안정성 검증된 버전
 5. **Genesis 특별 대우**: 2x 보상, 자동 수집, 전용 UI
 
 이 명세서를 따라 구현하면 12주 내에 Genesis 1000을 위한 안정적인 MVP를 출시할 수 있습니다.
