@@ -88,28 +88,34 @@ Unity의 전통적인 MonoBehaviour 아키텍처의 강결합 문제를 해결�
 
 ```yaml
 Scene Structure:
-  Persistent Scene (절대 언로드 안됨):
+  Persistent Managers (DontDestroyOnLoad):
+    - GameManager # 게임 상태 오케스트레이션
     - NetworkManager # 네트워크 연결 유지
-    - GameStateManager # 게임 상태 보존
-    - AudioManager # 오디오 연속성
-    - AnalyticsManager # 분석 데이터 수집
+    - LocationManager # GPS 추적
+    - ARManager # AR Foundation 통합
+    - CoreLifetimeScope # VContainer DI 루트
 
-  Loadable Scenes (필요시 로드/언로드):
-    - SplashScene # 초기 로딩 (3초 목표)
-    - LoginScene # 인증 (JWT 토큰)
-    - MainMenuScene # 메인 메뉴
-    - GameScene # AR 게임플레이
-    - MapScene # 2D 맵 뷰 (AR 폴백)
+  Game States (씬 전환 없이 상태 관리):
+    - Initializing # GameManager 시작 상태
+    - Login # 인증 (JWT 토큰)
+    - MainMenu # 메인 메뉴
+    - ARGame # AR 게임플레이
+    - Loading # 씬 전환 중
+    - Paused # 일시정지
+    - Error # 오류 상태
 
-Scene Flow: Splash → Login → MainMenu ↔ Game/Map
-  ↔
-  Settings/Profile/Shop
+State Flow: Initializing → Login → MainMenu ↔ ARGame
+  (모든 상태에서 → Paused/Error 가능)
 
 전환 규칙:
-  - Splash → Login: 자동 (리소스 로드 완료 시)
+  - Initializing → MainMenu: 자동 (서비스 초기화 완료 시)
   - Login → MainMenu: 인증 성공 시
-  - MainMenu ↔ Game: 사용자 선택
-  - Game ↔ Map: AR 가용성에 따라 자동/수동
+  - MainMenu ↔ ARGame: 사용자 선택
+  - 네트워크 끊김 → Paused: 자동 (재연결 시도)
+  - 치명적 오류 → Error: 자동 (재시작 필요)
+
+주의: Unity 6.2에서는 씬 전환 대신 GameState를 변경하여 UI만 전환합니다.
+  모든 매니저는 DontDestroyOnLoad로 유지되어 상태가 보존됩니다.
 ```
 
 ### 1.3 Component Architecture (Updated: VContainer DI)
@@ -151,25 +157,23 @@ namespace ORE.Core.DI
     {
         protected override void Configure(IContainerBuilder builder)
         {
-            // Register core managers as singletons with their interfaces
-            // VContainer automatically resolves dependencies and injection order
-            builder.Register<GameManager>(Lifetime.Singleton)
-                .AsImplementedInterfaces()
-                .AsSelf();
+            // Register platform-specific providers FIRST
+            // Editor: Simulated GPS | Device: Real Unity location services
+            #if UNITY_EDITOR
+            builder.Register<ILocationProvider, EditorLocationProvider>(Lifetime.Singleton);
+            #else
+            builder.Register<ILocationProvider, UnityLocationProvider>(Lifetime.Singleton);
+            #endif
 
-            builder.Register<NetworkManager>(Lifetime.Singleton)
-                .AsImplementedInterfaces()
-                .AsSelf();
+            // Register MonoBehaviour managers from scene hierarchy
+            // These GameObjects must exist in the scene with their components attached
+            builder.RegisterComponentInHierarchy<GameManager>().AsImplementedInterfaces().AsSelf();
+            builder.RegisterComponentInHierarchy<NetworkManager>().AsImplementedInterfaces().AsSelf();
+            builder.RegisterComponentInHierarchy<LocationManager>().AsImplementedInterfaces().AsSelf();
+            builder.RegisterComponentInHierarchy<ARManager>().AsImplementedInterfaces().AsSelf();
 
-            builder.Register<LocationManager>(Lifetime.Singleton)
-                .AsImplementedInterfaces()
-                .AsSelf();
-
-            builder.Register<ARManager>(Lifetime.Singleton)
-                .AsImplementedInterfaces()
-                .AsSelf();
-
-            // Register the Services provider as singleton (backward compatibility)
+            // Register Services as singleton - VContainer will auto-inject via constructor
+            // Constructor injection prevents circular dependency issues
             builder.Register<Services>(Lifetime.Singleton);
         }
     }
@@ -183,21 +187,30 @@ namespace ORE.Core
     /// <summary>
     /// Service Provider implementation using VContainer dependency injection.
     /// Provides centralized access to all manager instances following modern DI patterns.
+    /// Uses constructor injection to prevent circular dependencies.
     /// </summary>
+    // ReSharper disable once ClassNeverInstantiated.Global - Instantiated by VContainer DI
+#pragma warning disable CA1812 // Avoid uninstantiated internal classes - Instantiated by VContainer
     public class Services
+#pragma warning restore CA1812
     {
         // Static instance for backward compatibility
         public static Services Instance { get; private set; }
 
-        // Dependency injection (VContainer auto-resolves these)
-        [Inject] private IGameManager gameManager;
-        [Inject] private ILocationManager locationManager;
-        [Inject] private IARManager arManager;
-        [Inject] private INetworkManager networkManager;
+        // Constructor injection (2025 VContainer best practice - prevents circular dependencies)
+        private readonly IGameManager gameManager;
+        private readonly ILocationManager locationManager;
+        private readonly IARManager arManager;
+        private readonly INetworkManager networkManager;
 
-        // Constructor for DI
-        public Services()
+        // Constructor for DI - VContainer will inject these automatically
+        public Services(IGameManager gameManager, INetworkManager networkManager,
+                        ILocationManager locationManager, IARManager arManager)
         {
+            this.gameManager = gameManager;
+            this.networkManager = networkManager;
+            this.locationManager = locationManager;
+            this.arManager = arManager;
             Instance = this;
         }
 
@@ -356,6 +369,233 @@ public abstract class GameCommand
     // 서버 승인 시 확정
     public abstract void Confirm(ClientGameState state, ServerResponse response);
 }
+```
+
+### 1.4.1 이벤트 기반 아키텍처 (Event-Driven Architecture)
+
+**목적**: 순환 의존성을 방지하고 느슨한 결합(loose coupling)을 유지하기 위한 매니저 간 통신 패턴
+
+**문제점**: VContainer에서 매니저들이 서로를 직접 의존하면 순환 의존성 발생
+
+```csharp
+// ❌ 순환 의존성 예시
+GameManager → ILocationManager → IGameManager  // CIRCULAR!
+GameManager → INetworkManager → IGameManager   // CIRCULAR!
+```
+
+**해결책**: 이벤트 기반 통신 패턴
+
+```csharp
+// ✅ 단방향 의존성 + 이벤트 구독
+GameManager → ILocationManager (DI 의존성 ↓)
+            ← OnLocationUpdated (이벤트 알림 ↑)
+```
+
+#### 매니저 이벤트 발생 패턴
+
+```csharp
+// 예시: LocationManager는 GameManager를 모르지만 이벤트 발생
+public class LocationManager : MonoBehaviour, ILocationManager
+{
+    // GameManager 의존성 제거 (순환 의존성 방지)
+    // [Inject] private IGameManager gameManager; // ❌ 제거됨
+
+    [Inject] private ILocationProvider locationProvider; // ✅ Provider만 의존
+
+    // 이벤트 정의 (구독자를 모름 - 느슨한 결합)
+    public event Action<Vector2d> OnLocationUpdated;
+    public event Action<Vector2d, float> OnLocationValidated;
+    public event Action<LocationCheatType> OnCheatDetected; // 안티치트 타입 전달
+    public event Action<string> OnLocationError;
+
+    private void UpdateLocation()
+    {
+        if (locationProvider.Status != LocationServiceStatus.Running) return;
+
+        try
+        {
+            var locationData = locationProvider.LastData;
+            var newLocation = new Vector2d(locationData.latitude, locationData.longitude);
+
+            // 안티치트 검증
+            var cheatType = ValidateLocationMovement(newLocation, Time.time);
+            if (cheatType == LocationCheatType.None)
+            {
+                CurrentLocation = newLocation;
+                CurrentAccuracy = locationData.horizontalAccuracy;
+
+                // 이벤트 발생 (누가 구독하는지 모름)
+                OnLocationUpdated?.Invoke(CurrentLocation);
+                OnLocationValidated?.Invoke(CurrentLocation, CurrentAccuracy);
+            }
+            else
+            {
+                OnCheatDetected?.Invoke(cheatType); // 치트 타입 전달
+            }
+        }
+        catch (Exception ex)
+        {
+            OnLocationError?.Invoke(ex.Message);
+        }
+    }
+
+    // 안티치트 검증 결과 타입
+    private LocationCheatType ValidateLocationMovement(Vector2d newLocation, float currentTime)
+    {
+        if (!HasValidLocation()) return LocationCheatType.None;
+
+        var distance = Vector2d.Distance(lastValidLocation, newLocation);
+        var deltaTime = currentTime - lastUpdateTime;
+
+        // 순간이동 체크 (100m 이상 즉시 이동)
+        if (distance > teleportThreshold) return LocationCheatType.Teleport;
+
+        // 불가능한 속도 체크 (30 m/s = 108 km/h 이상)
+        var velocity = (float)(distance / deltaTime);
+        if (velocity > maxVelocity) return LocationCheatType.ImpossibleSpeed;
+
+        // 불가능한 가속도 체크 (10 m/s² 이상)
+        var acceleration = Mathf.Abs(velocity - currentVelocity) / deltaTime;
+        if (acceleration > maxAcceleration) return LocationCheatType.ImpossibleAcceleration;
+
+        return LocationCheatType.None;
+    }
+}
+
+// 안티치트 타입 정의
+public enum LocationCheatType
+{
+    None,                       // 정상
+    Teleport,                   // 순간이동 (100m+ 즉시 이동)
+    ImpossibleSpeed,            // 불가능한 속도 (30 m/s = 108 km/h 이상)
+    ImpossibleAcceleration,     // 불가능한 가속도 (10 m/s² 이상)
+    GpsSpoof                    // GPS 스푸핑 (향후 구현)
+}
+```
+
+#### GameManager 이벤트 구독 패턴
+
+```csharp
+public class GameManager : MonoBehaviour, IGameManager
+{
+    // 의존성은 단방향 (GameManager → 다른 매니저들)
+    [Inject] private INetworkManager networkManager;
+    [Inject] private ILocationManager locationManager;
+    [Inject] private IARManager arManager;
+
+    private void Start()
+    {
+        // 매니저 이벤트 구독 (activity tracking용)
+        SubscribeToManagerEvents();
+        StartGameSession();
+    }
+
+    private void SubscribeToManagerEvents()
+    {
+        // LocationManager 이벤트 구독
+        if (locationManager != null)
+        {
+            locationManager.OnLocationUpdated += HandleLocationUpdated;
+            locationManager.OnCheatDetected += HandleCheatDetected;
+        }
+
+        // NetworkManager 이벤트 구독
+        if (networkManager != null)
+        {
+            networkManager.OnConnected += OnNetworkRestored;
+            networkManager.OnDisconnected += OnNetworkLost;
+        }
+
+        // ARManager 이벤트 구독
+        if (arManager != null)
+        {
+            arManager.OnARInitialized += HandleARInitialized;
+        }
+    }
+
+    // 중요: 항상 OnDestroy에서 구독 해제 (메모리 누수 방지)
+    private void OnDestroy()
+    {
+        UnsubscribeFromManagerEvents();
+    }
+
+    private void UnsubscribeFromManagerEvents()
+    {
+        if (locationManager != null)
+        {
+            locationManager.OnLocationUpdated -= HandleLocationUpdated;
+            locationManager.OnCheatDetected -= HandleCheatDetected;
+        }
+
+        if (networkManager != null)
+        {
+            networkManager.OnConnected -= OnNetworkRestored;
+            networkManager.OnDisconnected -= OnNetworkLost;
+        }
+
+        if (arManager != null)
+        {
+            arManager.OnARInitialized -= HandleARInitialized;
+        }
+    }
+
+    // 이벤트 핸들러 (activity tracking)
+    private void HandleLocationUpdated(Vector2d location)
+    {
+        RegisterActivity(); // 사용자 활동 추적
+    }
+
+    private void HandleCheatDetected(LocationCheatType cheatType)
+    {
+        GameLogger.LogWarning($"Cheat detected: {cheatType}");
+        // 서버에 보고 로직 (치트 타입 기반 처리)
+        switch (cheatType)
+        {
+            case LocationCheatType.Teleport:
+                // 순간이동 감지 시 처리
+                break;
+            case LocationCheatType.ImpossibleSpeed:
+            case LocationCheatType.ImpossibleAcceleration:
+                // 불가능한 이동 감지 시 처리
+                break;
+            case LocationCheatType.GpsSpoof:
+                // GPS 스푸핑 감지 시 처리
+                break;
+        }
+    }
+
+    private void OnNetworkRestored()
+    {
+        GameLogger.Log("Network connection restored");
+        ResumeGameplay();
+    }
+
+    private void OnNetworkLost()
+    {
+        GameLogger.LogWarning("Network connection lost");
+        PauseGameplay();
+    }
+}
+```
+
+**이벤트 기반 아키텍처의 장점:**
+
+- ✅ **순환 의존성 방지**: 의존성 그래프가 단방향 (DAG)
+- ✅ **느슨한 결합**: 매니저는 구독자를 알 필요 없음
+- ✅ **다중 구독자**: UI, Analytics, GameManager 모두 같은 이벤트 구독 가능
+- ✅ **테스트 용이**: 이벤트 소스를 쉽게 모킹 가능
+- ✅ **Unity 표준**: Unity의 자체 API도 동일한 패턴 사용
+
+**이벤트 네이밍 규칙:**
+
+```csharp
+// ✅ 좋은 예시 (자기 설명적)
+event Action OnConnected;
+event Action OnDisconnected;
+event Action<Vector2d> OnLocationUpdated;
+
+// ❌ 나쁜 예시 (불명확)
+event Action<bool> OnConnectivityChanged;  // true가 연결? 끊김?
 ```
 
 ### 1.5 Performance-Optimized Logging System
@@ -597,17 +837,22 @@ AR Foundation 6.0+ Configuration:
     - Track session state: 상태 변화 모니터링
     - Match Frame Rate: 60fps (고사양) / 30fps (저사양)
 
-  AR Session Origin (필수):
+  XR Origin (AR Foundation 6.0+ 필수):
+    - Camera Offset: XR Camera를 자식으로 가짐
+    - Tracking Origin Mode: Device (모바일 AR)
     - Camera setup:
         * Target Frame Rate: 디바이스 적응형
         * Facing Direction: Rear (후면 카메라)
         * Auto Focus: Continuous
-    - Plane detection:
+    - Plane detection (ARPlaneManager):
         * Mode: Horizontal (수평면만)
         * 이유: 수직면 감지 제외로 CPU 20% 절약
     - Light estimation:
         * Mode: Basic (밝기만)
         * 이유: Directional light는 GPU 부담 높음
+    - Input System: New Input System (Enhanced Touch)
+        * Touch.activeTouches로 터치 입력 처리
+        * EnhancedTouchSupport.Enable() 필요
 
   선택적 기능 (디바이스별):
     - People Occlusion:
@@ -883,6 +1128,8 @@ AR 환경에서는 깊이 인식이 어려우므로, 거리 기반 검증과 시
 3. 거리 기반 선택 (폴백)
 
 ```csharp
+using UnityEngine.InputSystem.EnhancedTouch;  // New Input System
+
 public class ARInteractionManager : MonoBehaviour
 {
     [Header("Interaction Settings")]
@@ -895,29 +1142,41 @@ public class ARInteractionManager : MonoBehaviour
     private ARRaycastManager raycastManager;
     private GameObject highlightedObject;       // 현재 하이라이트된 객체
 
+    void Start()
+    {
+        // New Input System의 Enhanced Touch 활성화 (필수)
+        EnhancedTouchSupport.Enable();
+    }
+
     void Update()
     {
-        // 터치 입력 처리
-        if (Input.touchCount > 0)
+        // New Input System - Touch.activeTouches 사용
+        if (Touch.activeTouches.Count > 0)
         {
-            Touch touch = Input.GetTouch(0);
+            var touch = Touch.activeTouches[0];
 
             switch (touch.phase)
             {
-                case TouchPhase.Began:
-                    HandleTouchBegin(touch.position);
+                case UnityEngine.InputSystem.TouchPhase.Began:
+                    HandleTouchBegin(touch.screenPosition);
                     break;
-                case TouchPhase.Moved:
-                    HandleTouchMove(touch.position);
+                case UnityEngine.InputSystem.TouchPhase.Moved:
+                    HandleTouchMove(touch.screenPosition);
                     break;
-                case TouchPhase.Ended:
-                    HandleTouchEnd(touch.position);
+                case UnityEngine.InputSystem.TouchPhase.Ended:
+                    HandleTouchEnd(touch.screenPosition);
                     break;
             }
         }
 
         // 근거리 자동 수집 체크
         CheckNearbyAutoCollect();
+    }
+
+    void OnDisable()
+    {
+        // Enhanced Touch 비활성화 (메모리 정리)
+        EnhancedTouchSupport.Disable();
     }
 
     void HandleTouchBegin(Vector2 screenPos)
@@ -1048,6 +1307,352 @@ public class ARInteractionManager : MonoBehaviour
 
 ## 3. Core Game Systems
 
+### 3.0 플랫폼 추상화 (Provider Pattern)
+
+**목적**: 플랫폼별 구현을 추상화하여 에디터 테스트, 디바이스 배포, 유닛 테스트를 조건부 컴파일 없이 비즈니스 로직에서 수행할 수 있게 합니다.
+
+#### 3.0.1 ILocationProvider 인터페이스
+
+```csharp
+namespace ORE.Core.Interfaces
+{
+    /// <summary>
+    /// Platform-agnostic GPS location provider interface.
+    /// Abstracts Unity's Input.location API for testability and Editor simulation.
+    /// </summary>
+    public interface ILocationProvider
+    {
+        void Start(float desiredAccuracyInMeters, float updateDistanceInMeters);
+        void Stop();
+        bool IsEnabledByUser { get; }
+        LocationServiceStatus Status { get; }
+        LocationData LastData { get; }  // Returns LocationData (not Unity's readonly LocationInfo)
+    }
+}
+```
+
+#### 3.0.2 UnityLocationProvider (디바이스 구현)
+
+**용도**: iOS/Android 실제 기기에서 Unity의 Input.location API를 사용한 GPS 구현
+
+```csharp
+namespace ORE.Core.Providers
+{
+    public class UnityLocationProvider : ILocationProvider
+    {
+        public void Start(float desiredAccuracyInMeters, float updateDistanceInMeters)
+        {
+            Input.location.Start(desiredAccuracyInMeters, updateDistanceInMeters);
+        }
+
+        public void Stop()
+        {
+            Input.location.Stop();
+        }
+
+        public bool IsEnabledByUser => Input.location.isEnabledByUser;
+        public LocationServiceStatus Status => Input.location.status;
+
+        // Unity의 readonly LocationInfo를 mutable LocationData로 변환
+        public LocationData LastData => LocationData.FromUnityLocationInfo(Input.location.lastData);
+    }
+}
+```
+
+#### 3.0.3 EditorLocationProvider (에디터 시뮬레이션)
+
+**용도**: 에디터에서 GPS 테스트를 위한 시뮬레이션 제공 (기기 없이 개발 가능)
+
+```csharp
+namespace ORE.Core.Providers
+{
+    public class EditorLocationProvider : ILocationProvider
+    {
+        private LocationServiceStatus currentStatus = LocationServiceStatus.Stopped;
+        private LocationData simulatedData;
+
+        // 기본 테스트 위치: 샌프란시스코
+        private const float DefaultLatitude = 37.7749f;
+        private const float DefaultLongitude = -122.4194f;
+        private const float DefaultAccuracy = 10f;
+
+        public EditorLocationProvider()
+        {
+            InitializeSimulatedLocation();
+        }
+
+        public void Start(float desiredAccuracyInMeters, float updateDistanceInMeters)
+        {
+            GameLogger.Log("[EditorLocationProvider] Starting simulated location service");
+            currentStatus = LocationServiceStatus.Running;
+        }
+
+        public void Stop()
+        {
+            GameLogger.Log("[EditorLocationProvider] Stopping simulated location service");
+            currentStatus = LocationServiceStatus.Stopped;
+        }
+
+        public bool IsEnabledByUser => true; // 에디터에서는 항상 활성화
+        public LocationServiceStatus Status => currentStatus;
+        public LocationData LastData => simulatedData;
+
+        // 에디터 테스트 시나리오를 위한 위치 변경 메서드
+        public void SetSimulatedLocation(float latitude, float longitude, float accuracy = DefaultAccuracy)
+        {
+            simulatedData = LocationData.CreateSimulated(latitude, longitude, accuracy);
+            GameLogger.Log($"[EditorLocationProvider] Location set to: {latitude}, {longitude}");
+        }
+
+        private void InitializeSimulatedLocation()
+        {
+            simulatedData = LocationData.CreateSimulated(DefaultLatitude, DefaultLongitude, DefaultAccuracy);
+        }
+    }
+}
+```
+
+**Provider Pattern 사용 이유:**
+
+- ✅ 플랫폼 독립적인 비즈니스 로직 (LocationManager에 #if UNITY_EDITOR 불필요)
+- ✅ 디바이스 하드웨어 없이 에디터 테스트 가능
+- ✅ 유닛 테스트를 위한 쉬운 모킹
+- ✅ AR Foundation의 XRSubsystem 패턴 준수 (업계 표준)
+
+**CoreLifetimeScope 등록** (섹션 2.2.1 참조):
+
+```csharp
+#if UNITY_EDITOR
+builder.Register<ILocationProvider, EditorLocationProvider>(Lifetime.Singleton);
+#else
+builder.Register<ILocationProvider, UnityLocationProvider>(Lifetime.Singleton);
+#endif
+```
+
+#### 3.0.4 LocationData 구조체
+
+**문제점**: Unity의 `LocationInfo`는 readonly 구조체로 생성 및 수정 불가능하여 테스트와 시뮬레이션에 사용 불가
+
+**해결책**: 플랫폼 독립적이고 변경 가능한 `LocationData` 구조체 정의
+
+```csharp
+namespace ORE.Core
+{
+    /// <summary>
+    /// Platform-agnostic GPS data structure.
+    /// Replaces Unity's readonly LocationInfo for testability and flexibility.
+    /// </summary>
+    [System.Serializable]
+    public struct LocationData
+    {
+        public float latitude;
+        public float longitude;
+        public float altitude;
+        public float horizontalAccuracy;
+        public float verticalAccuracy;
+        public double timestamp;
+
+        public LocationData(float lat, float lng, float alt, float hAcc, float vAcc, double time)
+        {
+            latitude = lat;
+            longitude = lng;
+            altitude = alt;
+            horizontalAccuracy = hAcc;
+            verticalAccuracy = vAcc;
+            timestamp = time;
+        }
+
+        /// <summary>
+        /// Convert from Unity's LocationInfo (device only).
+        /// Used by UnityLocationProvider to bridge Unity API and our abstraction.
+        /// </summary>
+        public static LocationData FromUnityLocationInfo(LocationInfo info)
+        {
+            return new LocationData(
+                info.latitude,
+                info.longitude,
+                info.altitude,
+                info.horizontalAccuracy,
+                info.verticalAccuracy,
+                info.timestamp
+            );
+        }
+
+        /// <summary>
+        /// Create simulated location data for testing and Editor.
+        /// </summary>
+        public static LocationData CreateSimulated(float lat, float lng, float accuracy)
+        {
+            return new LocationData(
+                lat, lng,
+                15f,  // Default altitude
+                accuracy, accuracy,
+                Time.realtimeSinceStartup
+            );
+        }
+    }
+}
+```
+
+**사용 흐름:**
+
+```
+디바이스:  Unity LocationInfo → LocationData.FromUnityLocationInfo() → LocationManager
+에디터:    시뮬레이션 → LocationData.CreateSimulated() → LocationManager
+테스트:    Mock 데이터 → LocationData 생성자 → LocationManager
+```
+
+**장점:**
+
+- ✅ 에디터와 디바이스에서 동일한 데이터 구조 사용
+- ✅ 유닛 테스트용 임의 데이터 생성 가능
+- ✅ 리플렉션 없이 직접 필드 접근 가능
+- ✅ 시리얼라이즈 가능 (디버깅 및 저장에 유용)
+
+#### 3.0.5 Manager 인터페이스 (Dependency Injection)
+
+**목적**: VContainer DI를 통한 테스트 가능성과 느슨한 결합을 위해 모든 Manager는 인터페이스로 추상화됩니다.
+
+##### IGameManager
+
+```csharp
+namespace ORE.Core.Interfaces
+{
+    public interface IGameManager
+    {
+        // Game state
+        GameState CurrentState { get; }
+        GameState PreviousState { get; }
+
+        // Events
+        event Action<GameState> OnGameStateChanged;
+        event Action OnGamePaused;
+        event Action OnGameResumed;
+
+        // Lifecycle
+        void PauseGameplay();
+        void ResumeGameplay();
+        void RegisterActivity();
+    }
+}
+```
+
+##### ILocationManager
+
+```csharp
+namespace ORE.Core.Interfaces
+{
+    public interface ILocationManager
+    {
+        // Current state
+        Vector2d CurrentLocation { get; }
+        float CurrentAccuracy { get; }
+        bool IsLocationServiceRunning { get; }
+
+        // Events
+        event Action<Vector2d> OnLocationUpdated;
+        event Action<Vector2d, float> OnLocationValidated;
+        event Action<LocationCheatType> OnCheatDetected;
+        event Action<string> OnLocationError;
+
+        // Methods
+        bool HasValidLocation();
+        void StartLocationService();
+        void StopLocationService();
+    }
+}
+```
+
+##### INetworkManager
+
+```csharp
+namespace ORE.Core.Interfaces
+{
+    public interface INetworkManager
+    {
+        // Connection state
+        bool IsConnected { get; }
+        bool IsAuthenticated { get; }
+        string AuthToken { get; }
+
+        // Events
+        event Action OnConnected;
+        event Action OnDisconnected;
+        event Action OnAuthenticated;
+        event Action<string> OnNetworkError;
+
+        // API methods
+        void UpdatePlayerLocation(Vector2d location, float accuracy, Action<bool> onComplete);
+        void AuthenticateUser(string userId, Action<bool> onComplete);
+    }
+}
+```
+
+##### IARManager
+
+```csharp
+namespace ORE.Core.Interfaces
+{
+    public interface IARManager
+    {
+        // AR state
+        bool IsARInitialized { get; }
+        bool IsARRunning { get; }
+        TrackingState CurrentTrackingState { get; }
+
+        // Events
+        event Action OnARInitialized;
+        event Action OnARStarted;
+        event Action<TrackingState> OnTrackingStateChanged;
+        event Action<ARPlane> OnPlaneDetected;
+        event Action<Vector2> OnARTapped;
+
+        // Methods
+        bool IsTrackingStable();
+        GameObject SpawnARObject(string objectId, GameObject prefab, Vector3 position, Quaternion rotation);
+        void DespawnARObject(string objectId);
+    }
+}
+```
+
+**인터페이스 사용 이유:**
+
+- ✅ **테스트 용이성**: Mock 구현 주입 가능
+- ✅ **느슨한 결합**: 구현체 변경 시 인터페이스 사용 코드 영향 없음
+- ✅ **DI 친화적**: VContainer가 인터페이스 기반으로 의존성 해결
+- ✅ **문서화**: 인터페이스가 public API 계약 역할
+
+**DI 등록 패턴** (CoreLifetimeScope.cs):
+
+```csharp
+// MonoBehaviour managers - RegisterComponentInHierarchy 사용
+builder.RegisterComponentInHierarchy<GameManager>().AsImplementedInterfaces().AsSelf();
+builder.RegisterComponentInHierarchy<NetworkManager>().AsImplementedInterfaces().AsSelf();
+builder.RegisterComponentInHierarchy<LocationManager>().AsImplementedInterfaces().AsSelf();
+builder.RegisterComponentInHierarchy<ARManager>().AsImplementedInterfaces().AsSelf();
+```
+
+**의존성 주입 예시:**
+
+```csharp
+public class UIController : MonoBehaviour
+{
+    // 인터페이스 주입 (구현체가 아님)
+    [Inject] private ILocationManager locationManager;
+    [Inject] private INetworkManager networkManager;
+
+    private void Start()
+    {
+        // 인터페이스 메서드만 사용 (느슨한 결합)
+        if (locationManager.HasValidLocation())
+        {
+            var location = locationManager.CurrentLocation;
+            networkManager.UpdatePlayerLocation(location, 10f, OnSuccess);
+        }
+    }
+}
+```
+
 ### 3.1 Location System (GPS + Mapbox)
 
 **업데이트 주기 설정 근거:**
@@ -1065,7 +1670,7 @@ public class ARInteractionManager : MonoBehaviour
 위치 시스템은 완전히 네트워크에 의존합니다. 오프라인 상태에서는 게임이 일시정지되며, 재연결 시 서버와 동기화합니다.
 
 ```csharp
-public class LocationManager : MonoBehaviour
+public class LocationManager : MonoBehaviour, ILocationManager
 {
     [Header("GPS Settings")]
     public float updateInterval = 1.0f;     // 업데이트 주기 (초)
@@ -1077,18 +1682,34 @@ public class LocationManager : MonoBehaviour
     public float lowBatteryInterval = 5.0f; // 저전력 모드 주기
 
     [Header("Anti-Cheat")]
-    public float maxSpeed = 41.67f;         // 최대 속도 (m/s) = 150km/h
+    public float maxSpeed = 30f;            // 최대 속도 (m/s) = 108km/h
     public float maxAcceleration = 10f;     // 최대 가속도 (m/s²)
 
-    private NetworkMonitor networkMonitor;
+    // VContainer 의존성 주입 (플랫폼 독립적)
+    [Inject] private ILocationProvider locationProvider;
+    [Inject] private INetworkManager networkManager;
+
+    // 안티치트 추적 변수
     private Vector2d lastValidLocation;
     private float lastUpdateTime;
-    private Queue<LocationData> locationHistory = new Queue<LocationData>(10);
+    private float currentVelocity;
+    private const float teleportThreshold = 100f;    // 순간이동 임계값 (미터)
+    private const float maxVelocity = 30f;           // 최대 속도 (m/s = 108 km/h)
+
+    // 현재 상태
+    public Vector2d CurrentLocation { get; private set; }
+    public float CurrentAccuracy { get; private set; }
+    public bool IsLocationServiceRunning => locationProvider?.Status == LocationServiceStatus.Running;
+
+    // 이벤트 (GameManager에게 알림)
+    public event Action<Vector2d> OnLocationUpdated;
+    public event Action<Vector2d, float> OnLocationValidated;
+    public event Action<LocationCheatType> OnCheatDetected;
 
     IEnumerator Start()
     {
         // 네트워크 필수 체크
-        if (!networkMonitor.IsConnected)
+        if (!networkManager.IsConnected)
         {
             ShowNetworkRequiredScreen();
             yield break;
@@ -1097,19 +1718,19 @@ public class LocationManager : MonoBehaviour
         // 위치 권한 체크
         yield return RequestLocationPermission();
 
-        // GPS 서비스 시작
-        Input.location.Start(desiredAccuracy, minDistance);
+        // GPS 서비스 시작 (Provider를 통해 플랫폼 독립적으로)
+        locationProvider.Start(desiredAccuracy, minDistance);
 
         // 초기화 대기 (최대 20초)
         int maxWait = 20;
-        while (Input.location.status == LocationServiceStatus.Initializing && maxWait > 0)
+        while (locationProvider.Status == LocationServiceStatus.Initializing && maxWait > 0)
         {
             yield return new WaitForSeconds(1);
             maxWait--;
         }
 
         // 상태별 처리
-        switch (Input.location.status)
+        switch (locationProvider.Status)
         {
             case LocationServiceStatus.Failed:
                 HandleLocationFailed();
@@ -1126,10 +1747,10 @@ public class LocationManager : MonoBehaviour
         while (isActiveAndEnabled)
         {
             // 네트워크 체크 (필수)
-            if (!networkMonitor.IsConnected)
+            if (!networkManager.IsConnected)
             {
                 PauseGame("네트워크 연결이 필요합니다");
-                yield return new WaitUntil(() => networkMonitor.IsConnected);
+                yield return new WaitUntil(() => networkManager.IsConnected);
                 ResumeGame();
             }
 
@@ -1140,96 +1761,96 @@ public class LocationManager : MonoBehaviour
                 currentInterval = lowBatteryInterval;
             }
 
-            // GPS 데이터 획득
-            var locInfo = Input.location.lastData;
-            var currentLocation = new Vector2d(locInfo.latitude, locInfo.longitude);
+            // GPS 데이터 획득 (Provider를 통해 플랫폼 독립적으로)
+            var locationData = locationProvider.LastData;
+            var currentLocation = new Vector2d(locationData.latitude, locationData.longitude);
 
-            // 클라이언트 측 사전 검증
-            if (ValidateLocation(currentLocation, locInfo))
+            // 클라이언트 측 안티치트 검증
+            var cheatType = ValidateLocationMovement(currentLocation, Time.time);
+            if (cheatType == LocationCheatType.None)
             {
-                // 서버로 전송
-                SendLocationUpdate(currentLocation, locInfo);
+                // 검증 통과 - 서버로 전송
+                CurrentLocation = currentLocation;
+                CurrentAccuracy = locationData.horizontalAccuracy;
 
-                // 맵 업데이트
-                UpdateMapPosition(currentLocation);
+                OnLocationUpdated?.Invoke(currentLocation);
+                OnLocationValidated?.Invoke(currentLocation, locationData.horizontalAccuracy);
 
-                // 히스토리 저장 (안티치트용)
-                AddToHistory(currentLocation, locInfo);
+                // 서버로 위치 업데이트 전송
+                SendLocationUpdate(currentLocation, locationData);
             }
             else
             {
-                Debug.LogWarning($"Invalid location detected: {currentLocation}");
-                // 의심스러운 활동 보고
-                ReportSuspiciousActivity("INVALID_LOCATION", currentLocation);
+                // 치트 감지 - 이벤트 발생
+                OnCheatDetected?.Invoke(cheatType);
+                GameLogger.LogWarning($"Cheat detected: {cheatType}");
+
+                // 서버에 보고 (치트 타입 포함)
+                ReportCheatDetection(cheatType, currentLocation);
             }
 
             yield return new WaitForSeconds(currentInterval);
         }
     }
 
-    bool ValidateLocation(Vector2d newLocation, LocationInfo info)
+    private LocationCheatType ValidateLocationMovement(Vector2d newLocation, float currentTime)
     {
-        // 1. 정확도 체크
-        if (info.horizontalAccuracy > 50f) // 50m 이상 오차는 무시
-        {
-            Debug.Log($"Low accuracy: {info.horizontalAccuracy}m");
-            return false;
-        }
-
-        // 2. 첫 위치는 항상 유효
-        if (lastValidLocation == null)
+        // 첫 위치는 항상 유효
+        if (!HasValidLocation())
         {
             lastValidLocation = newLocation;
-            lastUpdateTime = Time.time;
-            return true;
+            lastUpdateTime = currentTime;
+            return LocationCheatType.None;
         }
 
-        // 3. 속도 체크
-        float distance = Vector2d.Distance(lastValidLocation, newLocation);
-        float timeDelta = Time.time - lastUpdateTime;
-        float speed = distance / timeDelta;
+        var distance = Vector2d.Distance(lastValidLocation, newLocation);
+        var deltaTime = currentTime - lastUpdateTime;
 
-        if (speed > maxSpeed)
+        // 순간이동 체크 (100m 이상 즉시 이동)
+        if (distance > teleportThreshold) // teleportThreshold = 100m
         {
-            Debug.LogWarning($"Speed violation: {speed}m/s > {maxSpeed}m/s");
-            return false;
+            GameLogger.LogWarning($"Teleport detected: {distance}m in {deltaTime}s");
+            return LocationCheatType.Teleport;
         }
 
-        // 4. 가속도 체크 (급격한 속도 변화)
-        if (locationHistory.Count > 2)
+        // 불가능한 속도 체크 (30 m/s = 108 km/h 이상)
+        var velocity = (float)(distance / deltaTime);
+        if (velocity > maxVelocity) // maxVelocity = 30 m/s
         {
-            var prevSpeed = CalculateSpeed(locationHistory.ElementAt(1), locationHistory.ElementAt(0));
-            float acceleration = Mathf.Abs(speed - prevSpeed) / timeDelta;
-
-            if (acceleration > maxAcceleration)
-            {
-                Debug.LogWarning($"Acceleration violation: {acceleration}m/s²");
-                return false;
-            }
+            GameLogger.LogWarning($"Impossible speed: {velocity}m/s (max: {maxVelocity}m/s)");
+            return LocationCheatType.ImpossibleSpeed;
         }
 
-        // 5. 지그재그 패턴 감지
-        if (IsZigzagPattern())
+        // 불가능한 가속도 체크 (10 m/s² 이상)
+        var acceleration = Mathf.Abs(velocity - currentVelocity) / deltaTime;
+        if (acceleration > maxAcceleration) // maxAcceleration = 10 m/s²
         {
-            Debug.LogWarning("Zigzag pattern detected");
-            return false;
+            GameLogger.LogWarning($"Impossible acceleration: {acceleration}m/s² (max: {maxAcceleration}m/s²)");
+            return LocationCheatType.ImpossibleAcceleration;
         }
 
         // 검증 통과
         lastValidLocation = newLocation;
-        lastUpdateTime = Time.time;
-        return true;
+        lastUpdateTime = currentTime;
+        currentVelocity = velocity;
+        return LocationCheatType.None;
     }
 
-    void SendLocationUpdate(Vector2d location, LocationInfo info)
+    // 유효한 위치 데이터가 있는지 체크
+    private bool HasValidLocation()
+    {
+        return lastValidLocation != null && lastUpdateTime > 0;
+    }
+
+    void SendLocationUpdate(Vector2d location, LocationData data)
     {
         var update = new LocationUpdate
         {
             Latitude = location.x,
             Longitude = location.y,
-            Accuracy = info.horizontalAccuracy,
-            Altitude = info.altitude,
-            Timestamp = info.timestamp,
+            Accuracy = data.horizontalAccuracy,
+            Altitude = data.altitude,
+            Timestamp = data.timestamp,
             Speed = CalculateSpeed(),
             Heading = Input.compass.trueHeading,
             DeviceInfo = GetDeviceInfo()
@@ -1918,7 +2539,7 @@ public class QuestSystem : MonoBehaviour
 - 4xx (401, 429 제외): 재시도 안함 (클라이언트 오류)
 
 ```csharp
-public class NetworkManager : SingletonBehaviour<NetworkManager>
+public class NetworkManager : MonoBehaviour, INetworkManager
 {
     [Header("Configuration")]
     public string apiBaseUrl = "https://api.ore.game/v1";
@@ -1927,22 +2548,37 @@ public class NetworkManager : SingletonBehaviour<NetworkManager>
     public int maxRetries = 3;
 
     [Header("Rate Limiting")]
-    public int requestsPerMinute = 60;
-    public float burstCapacity = 10;
+    public float requestCooldown = 0.1f;  // 100ms between requests
+    private float lastRequestTime;
+    private readonly Queue<NetworkRequest> requestQueue = new();
+    private readonly List<UnityWebRequest> activeRequests = new();
 
-    private RestClient restClient;
-    private WebSocketClient wsClient;
-    private Queue<NetworkCommand> commandQueue;
+    // HTTP 설정
     private string authToken;
     private DateTime tokenExpiry;
 
     // 연결 상태
     public bool IsConnected { get; private set; }
+    public bool IsAuthenticated { get; private set; }
+    public string AuthToken => authToken;
     public NetworkReachability LastReachability { get; private set; }
+
+    // 이벤트
+    public event Action OnConnected;
+    public event Action OnDisconnected;
+    public event Action OnAuthenticated;
+    public event Action<string> OnNetworkError;
 
     // 재연결 관리
     private int reconnectAttempts = 0;
     private float reconnectDelay = 1f;
+
+    void Start()
+    {
+        // 네트워크 연결 상태 모니터링 시작
+        StartCoroutine(NetworkMonitor());
+        StartCoroutine(ProcessRequestQueue());
+    }
 
     void Awake()
     {
@@ -2124,14 +2760,14 @@ public class NetworkManager : SingletonBehaviour<NetworkManager>
 
         // 2. 인벤토리
         var inventory = await GetInventory();
-        InventorySystem.Instance.LoadInventory(inventory);
+        Services.Inventory.LoadInventory(inventory);
 
         // 3. 현재 위치 업데이트
-        LocationManager.Instance.ForceLocationUpdate();
+        Services.Location.ForceLocationUpdate();
 
         // 4. 퀘스트 상태
         var quests = await GetActiveQuests();
-        QuestSystem.Instance.UpdateQuests(quests);
+        Services.Quest.UpdateQuests(quests);
 
         UIManager.HideLoading();
 
@@ -2275,12 +2911,22 @@ Addressables로 동적 콘텐츠 로딩을 구현하여 앱 크기를 최소화�
 
 ---
 
-_Version: 2.1_
-_Last Updated: 2025-09-30_
-_Unity Version: 2023.3 LTS (targeting Unity 6.0 LTS)_
-_AR Foundation: 5.1+ (targeting 6.0+)_
+_Version: 2.2_
+_Last Updated: 2025-10-01_
+_Unity Version: Unity 6.2 (6000.2.0f1) - 2025 LTS_
+_AR Foundation: 6.0+ (XROrigin, New Input System)_
 _Dependencies: VContainer (DI framework)_
 _Target Platforms: iOS 14+, Android 10+_
+
+**주요 변경사항 (v2.1 → v2.2):**
+
+- ✅ Scene Management 수정 - GameState enum 기반 상태 관리로 변경 (Section 1.2)
+- ✅ LocationCheatType enum 추가 - 타입 기반 안티치트 이벤트 (Section 1.4.1)
+- ✅ Manager 인터페이스 문서화 - IGameManager, ILocationManager, INetworkManager, IARManager (Section 3.0.5)
+- ✅ LocationManager 안티치트 로직 업데이트 - NetworkMonitor 제거, LocationCheatType 사용 (Section 3.1)
+- ✅ NetworkManager MonoBehaviour 전환 - SingletonBehaviour 제거, VContainer DI 적용 (Section 4.1)
+- ✅ Unity 6.2 업데이트 - 2023.3 LTS에서 Unity 6.2 (6000.2.0f1)로 업그레이드
+- ✅ AR Foundation 6.0+ - XROrigin, New Input System (Enhanced Touch) 적용 (Section 2.1, 2.4)
 
 **주요 변경사항 (v2.0 → v2.1):**
 
