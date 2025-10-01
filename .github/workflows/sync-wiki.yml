@@ -146,6 +146,7 @@ jobs:
           - [Backend Spec](Backend-Spec)
           - [Frontend Spec](Frontend-Spec)
           - [Infrastructure Spec](Infrastructure-Spec)
+          - [API Documentation Strategy](Api-Documentation-Strategy)
           
           ## 🎮 Game Design
           - [Gameplay Spec](Gameplay-Spec)

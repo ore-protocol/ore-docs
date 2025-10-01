@@ -27,8 +27,8 @@
 
 ### 🔧 개발자를 위한 문서
 
-- **[Backend Architecture](https://github.com/ore-protocol/ore-docs/wiki/Backend-Architecture)** - Rust + Go 시스템 설계
-- **[AI Development Guide](https://github.com/ore-protocol/ore-docs/wiki/Backend-AI-Guide)** - Claude Code 베스트 프랙티스
+- **[Backend Spec](https://github.com/ore-protocol/ore-docs/wiki/Backend-Spec)** - Rust + Go 시스템 설계
+- **[AI Development Guide](https://github.com/ore-protocol/ore-docs/wiki/Backend-Ai-Guide)** - Claude Code 베스트 프랙티스
 - **[Setup Guide](https://github.com/ore-protocol/ore-platform)** - 개발 환경 설정
 
 ---
@@ -52,22 +52,22 @@
 
 시스템 설계 및 구현 명세
 
-| 문서                                                           | 목적                     | 대상           |
-| -------------------------------------------------------------- | ------------------------ | -------------- |
-| [Backend Specification](docs/technical/backend-spec.md)        | Rust + Go 마이크로서비스 | Backend 개발자 |
-| [Frontend Specification](docs/technical/frontend-spec.md)      | Unity AR 클라이언트 설계 | Unity 개발자   |
-| [Infrastructure Design](docs/technical/infrastructure-spec.md) | AWS 하이브리드 클라우드  | DevOps         |
-| [API Documentation](docs/technical/api-documentation.md)       | REST & WebSocket APIs    | 모든 개발자    |
+| 문서                                                                       | 목적                      | 대상           |
+| -------------------------------------------------------------------------- | ------------------------- | -------------- |
+| [Backend Specification](docs/technical/backend-spec.md)                    | Rust + Go 마이크로서비스  | Backend 개발자 |
+| [Frontend Specification](docs/technical/frontend-spec.md)                  | Unity AR 클라이언트 설계  | Unity 개발자   |
+| [Infrastructure Design](docs/technical/infrastructure-spec.md)             | AWS 하이브리드 클라우드   | DevOps         |
+| [API Documentation Strategy](docs/technical/api-documentation-strategy.md) | OpenAPI/Swagger 통합 전략 | 모든 개발자    |
 
 ### **🎮 Game & Experience Design**
 
 게임 메커니즘, 세계관, 사용자 경험 명세
 
-| 문서                                                        | 목적                 | 대상             |
-| ----------------------------------------------------------- | -------------------- | ---------------- |
-| [Gameplay Specification](docs/game-design/gameplay-spec.md) | 핵심 게임 메커니즘   | Game Designer    |
-| [Game Worldview](docs/game-design/game-worldview.md)        | Reality Layer 스토리 | Art, Marketing   |
-| [UX Design Guide](docs/game-design/ux-guide.md)             | 사용자 경험 철학     | UX, Unity 개발자 |
+| 문서                                                         | 목적                 | 대상             |
+| ------------------------------------------------------------ | -------------------- | ---------------- |
+| [Gameplay Specification](docs/game-design/game-play-spec.md) | 핵심 게임 메커니즘   | Game Designer    |
+| [Game Worldview](docs/game-design/game-worldview.md)         | Reality Layer 스토리 | Art, Marketing   |
+| [UX Design Guide](docs/game-design/ux-guide.md)              | 사용자 경험 철학     | UX, Unity 개발자 |
 
 ### **🚀 Operations & Community**
 
@@ -88,7 +88,7 @@ AI-Native 개발 패턴 및 베스트 프랙티스
 | -------------------------------------------------------------------- | ---------------------------- | -------------- |
 | [Backend AI Guide](docs/ai-guides/backend-ai-guide.md)               | Backend용 Claude Code        | Backend 개발자 |
 | [Frontend AI Guide](docs/ai-guides/frontend-ai-guide.md)             | AI 지원 Unity 개발           | Unity 개발자   |
-| [Infrastructure AI Guide](docs/ai-guides/Infrastructure-ai-guide.md) | Infrastructure용 Cluade Code | DevOps 개발    |
+| [Infrastructure AI Guide](docs/ai-guides/infrastructure-ai-guide.md) | Infrastructure용 Claude Code | DevOps         |
 
 ---
 

@@ -54,6 +54,7 @@ _"0과 1 사이에 무한한 가능성이 존재합니다."_
 - [Backend Architecture](Backend-Spec) - Rust + Go 마이크로서비스
 - [Frontend Architecture](Frontend-Spec) - Unity AR 클라이언트
 - [Infrastructure Design](Infrastructure-Spec) - AWS 하이브리드 클라우드
+- [API Documentation Strategy](Api-Documentation-Strategy) - OpenAPI/Swagger 통합 전략
 
 ### 🎮 Game Design
 

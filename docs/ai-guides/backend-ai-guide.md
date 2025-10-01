@@ -2490,9 +2490,11 @@ Analytics Service (Go):
 
 ### 서비스 개발 체크리스트
 
+> **📋 API Documentation**: For OpenAPI/Swagger implementation guide, see [API Documentation Strategy](Api-Documentation-Strategy).
+
 ```yaml
 설계 단계: □ 도메인 모델 정의
-  □ API 스펙 작성
+  □ API 스펙 작성 (utoipa for Rust, swaggo for Go)
   □ 이벤트 스키마 정의
   □ 데이터베이스 스키마
 
@@ -2577,4 +2579,3 @@ _"처음부터 제대로, 재작성 없는 아키텍처"_
 _Version: 1.0_
 _Last Updated: 2024-12-20_
 _Target: 100만 사용자까지 확장 가능한 MVP_
-

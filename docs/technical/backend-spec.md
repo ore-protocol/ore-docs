@@ -407,33 +407,33 @@ Unity 로컬 캐싱:
 
 ## 4. Core Services (Rust) - 성능 크리티컬
 
-### 4.0 Rust Coding Standards
+### 4.0 Rust 코딩 표준
 
-**Module Organization:**
+**모듈 구조 (Module Organization):**
 
 ```rust
-// ✅ Explicit module declarations only
+// ✅ 명시적 모듈 선언만 사용
 pub mod game;
 pub mod rules;
 
-// ❌ No re-exports in mod.rs files
-// pub use game::GameService;  // DON'T DO THIS
+// ❌ mod.rs 파일에서 re-export 금지
+// pub use game::GameService;  // 이렇게 하지 말 것
 
-// ✅ Use explicit imports in consuming code instead
+// ✅ 사용하는 코드에서 명시적 import 사용
 use crate::services::game::GameService;
 use crate::models::player::PlayerState;
 ```
 
-**Import Conventions:**
+**Import 규칙:**
 
-- Always use explicit imports: `use crate::services::game::GameService`
-- No re-exports in `mod.rs` files to maintain clear dependency tracking
-- Prefer explicit over implicit to improve AI code analysis and maintainability
+- 항상 명시적 import 사용: `use crate::services::game::GameService`
+- `mod.rs` 파일에서 re-export 금지 (명확한 의존성 추적 유지)
+- 암시적보다 명시적 선호 (AI 코드 분석 및 유지보수성 향상)
 
-**Error Handling:**
+**에러 처리 (Error Handling):**
 
 ```rust
-// ✅ Use thiserror for domain-specific errors
+// ✅ 도메인별 에러는 thiserror 사용
 #[derive(Debug, thiserror::Error)]
 pub enum GameError {
     #[error("Database operation failed: {0}")]
@@ -444,76 +444,76 @@ pub enum GameError {
 }
 ```
 
-**Async Patterns:**
+**비동기 패턴 (Async Patterns):**
 
 ```rust
-// ✅ Use Result<T> for all fallible operations
+// ✅ 실패 가능한 모든 작업에 Result<T> 사용
 pub async fn collect_coin(&self, cmd: CollectCoinCommand) -> Result<CollectResult, GameError> {
     // Implementation
 }
 
-// ✅ Use Arc<T> for shared state across async tasks
+// ✅ async 작업 간 공유 상태는 Arc<T> 사용
 player_states: Arc<DashMap<PlayerId, PlayerState>>,
 ```
 
 ### 4.1 Location Service
 
 ```rust
-// Service Architecture with Zero-Copy GPS Processing
+// Zero-Copy GPS 처리를 사용하는 서비스 아키텍처
 pub struct LocationService {
     db: Database,
     redis: ConnectionManager,
     anti_cheat: AntiCheatConfig,
 
-    // Spatial indexing
+    // 공간 인덱싱
     s2_index: S2CellIndex,
     rtree_index: RTreeIndex,
 
-    // Zero-copy GPS processor following Backend Spec patterns
+    // Backend Spec 패턴을 따르는 zero-copy GPS 프로세서
     gps_processor: ZeroCopyGpsProcessor,
 }
 
-// Zero-Copy GPS Processing Pipeline
+// Zero-Copy GPS 처리 파이프라인
 pub struct ZeroCopyGpsProcessor {
-    /// Thread-local processing contexts
+    /// 스레드 로컬 처리 컨텍스트
     context: ProcessingContext,
-    /// Anti-cheat validation engine
+    /// Anti-cheat 검증 엔진
     anti_cheat: Arc<AntiCheatEngine>,
 }
 
 pub struct ProcessingContext {
-    /// Pre-allocated buffer for location serialization
+    /// 위치 직렬화용 사전 할당 버퍼
     location_buffer: Vec<u8>,
-    /// Pre-computed S2 cell computation workspace
+    /// S2 cell 계산용 사전 계산 작업 공간
     s2_workspace: S2Workspace,
-    /// Validation workspace to avoid string allocations
+    /// 문자열 할당 방지용 검증 작업 공간
     validation_workspace: ValidationWorkspace,
 }
 
-// Core APIs with Command Pattern
+// Command Pattern을 사용하는 핵심 API
 impl LocationService {
     // 위치 업데이트 (Zero-Copy Command Pattern)
     pub async fn update_location(&mut self, request: UpdateLocationRequest) -> Result<Location> {
         debug!("Processing location update for user {}", request.user_id);
 
-        // Validate input data
+        // 입력 데이터 검증
         request.validate().map_err(Error::Validation)?;
 
-        // Create command following Backend Spec pattern
+        // Backend Spec 패턴에 따라 command 생성
         let command = self.gps_processor.create_command(&request);
 
-        // Process command with zero-copy GPS processor (validates movement, updates spatial index)
+        // zero-copy GPS 프로세서로 command 처리 (이동 검증, 공간 인덱스 업데이트)
         self.gps_processor.update_location(command).await?;
 
-        // Perform additional anti-cheat checks using existing logic
+        // 기존 로직을 사용한 추가 anti-cheat 검사 수행
         self.validate_movement(&request).await?;
 
-        // Calculate S2 cell ID for spatial indexing using modern bit-preserving conversion
+        // 현대적인 비트 보존 변환을 사용한 공간 인덱싱용 S2 cell ID 계산
         let latlng = LatLng::from_degrees(request.latitude, request.longitude);
         let cell_id = CellID::from(latlng).parent(20);
-        let s2_cell_id = i64::from_ne_bytes(cell_id.0.to_ne_bytes()); // Modern u64→i64 conversion
+        let s2_cell_id = i64::from_ne_bytes(cell_id.0.to_ne_bytes()); // 현대적인 u64→i64 변환
 
-        // Create location record
+        // 위치 레코드 생성
         let location = Location {
             id: None,
             user_id: request.user_id,
@@ -526,7 +526,7 @@ impl LocationService {
             recorded_at: Utc::now(),
         };
 
-        // Save to database and update spatial indexes
+        // 데이터베이스 저장 및 공간 인덱스 업데이트
         let saved_location = self.save_location(&location).await?;
         self.s2_index.update_user_location(request.user_id, request.latitude, request.longitude);
         self.rtree_index.insert(&saved_location);
@@ -535,9 +535,9 @@ impl LocationService {
         Ok(saved_location)
     }
 
-    // 근접 검색 (Query) with Hybrid Spatial Indexing
+    // 근접 검색 (하이브리드 공간 인덱싱 사용)
     pub async fn find_nearby(&self, query: NearbyQuery) -> Result<Vec<Location>> {
-        // Use R-tree spatial index for fast initial filtering
+        // 빠른 초기 필터링을 위해 R-tree 공간 인덱스 사용
         let nearby_points = self.rtree_index.find_nearby(
             query.latitude,
             query.longitude,
@@ -545,64 +545,64 @@ impl LocationService {
             query.limit.unwrap_or(100).min(1000) * 2,
         );
 
-        // Fallback to database query if spatial index has insufficient data
+        // 공간 인덱스 데이터가 불충분하면 데이터베이스 쿼리로 fallback
         if nearby_points.is_empty() {
             return self.fallback_database_query(&query, query.limit.unwrap_or(100)).await;
         }
 
-        // Convert spatial points to full location data with batching
+        // 배치 처리로 공간 포인트를 전체 위치 데이터로 변환
         let locations = self.fetch_locations_for_candidates(nearby_points, &query, query.limit.unwrap_or(100)).await?;
 
-        // Sort by distance and apply limit
+        // 거리순 정렬 및 제한 적용
         let final_locations = Self::sort_and_limit_locations(locations, &query, query.limit.unwrap_or(100));
 
         Ok(final_locations)
     }
 }
 
-// Zero-Copy Processing Implementation
+// Zero-Copy 처리 구현
 impl ZeroCopyGpsProcessor {
-    /// Process location update command (Backend Spec pattern)
+    /// 위치 업데이트 command 처리 (Backend Spec 패턴)
     pub async fn update_location(&mut self, cmd: UpdateLocationCommand) -> Result<()> {
-        // 1. Validate movement without copying (Backend Spec requirement)
+        // 1. 복사 없이 이동 검증 (Backend Spec 요구사항)
         if !self.validate_movement(&cmd).await? {
             return Err(Error::Validation("Invalid movement detected".into()));
         }
 
-        // 2. Update spatial index efficiently with zero-copy
+        // 2. zero-copy로 공간 인덱스 효율적 업데이트
         self.update_spatial_index(&cmd).await?;
 
-        // 3. Check location triggers with minimal allocation
+        // 3. 최소 할당으로 위치 트리거 확인
         let _triggers = self.check_location_triggers(&cmd.location).await?;
 
         Ok(())
     }
 
-    /// Fast S2 cell computation with workspace reuse
+    /// workspace 재사용으로 빠른 S2 cell 계산
     fn compute_s2_cell_fast(&mut self, latitude: f64, longitude: f64) -> i64 {
-        // Compute cell ID at level 20 (approximately 400m resolution)
+        // level 20 cell ID 계산 (약 400m 해상도)
         let latlng = LatLng::from_degrees(latitude, longitude);
         let cell_id = CellID::from(latlng).parent(20);
 
-        // Modern bit-preserving conversion for PostgreSQL BIGINT storage
+        // PostgreSQL BIGINT 저장용 현대적인 비트 보존 변환
         i64::from_ne_bytes(cell_id.0.to_ne_bytes())
     }
 }
 
-// Performance Characteristics (Achieved)
-// - Throughput: 100,000 updates/sec (zero-copy hot path)
-// - Query latency: P95 < 10ms (hybrid spatial indexing)
-// - Memory: Pre-allocated buffers, minimal allocations
-// - S2 Integration: Level 20 cells (~400m resolution)
-// - Database: PostgreSQL BIGINT with bit-preserving u64→i64 conversion
-// - Anti-cheat: Speed validation, acceleration detection ready
-// - Spatial Index: R-tree + S2 hierarchical cells
+// 성능 특성 (달성)
+// - 처리량: 100,000 updates/sec (zero-copy hot path)
+// - 쿼리 지연: P95 < 10ms (하이브리드 공간 인덱싱)
+// - 메모리: 사전 할당 버퍼, 최소 할당
+// - S2 통합: Level 20 cells (~400m 해상도)
+// - 데이터베이스: PostgreSQL BIGINT with 비트 보존 u64→i64 변환
+// - Anti-cheat: 속도 검증, 가속도 탐지 준비 완료
+// - 공간 인덱스: R-tree + S2 계층적 cells
 ```
 
 ### 4.2 Game Service
 
 ```rust
-// Domain Model
+// 도메인 모델
 pub struct GameService {
     // State management
     player_states: Arc<DashMap<PlayerId, PlayerState>>,
@@ -618,7 +618,7 @@ pub struct GameService {
     kafka_producer: Arc<KafkaProducer>,
 }
 
-// Transaction Processing
+// 트랜잭션 처리
 impl GameService {
     // 코인 수집 (멱등성 보장)
     pub async fn collect_coin(&self, cmd: CollectCoinCommand) -> Result<CollectResult> {
@@ -673,11 +673,11 @@ impl GameService {
     }
 }
 
-// Safety Guarantees
-// - No data races (Rust compiler enforced)
-// - No memory leaks (RAII)
-// - No null pointer exceptions
-// - Transaction safety (ACID)
+// 안전성 보장
+// - 데이터 경합 없음 (Rust 컴파일러가 강제)
+// - 메모리 누수 없음 (RAII)
+// - Null pointer 예외 없음
+// - 트랜잭션 안전성 (ACID)
 ```
 
 ### 4.3 Realtime Engine
@@ -699,7 +699,7 @@ pub struct RealtimeEngine {
 }
 
 impl RealtimeEngine {
-    // WebSocket handler
+    // WebSocket 핸들러
     pub async fn handle_connection(&self, ws: WebSocket) -> Result<()> {
         let conn_id = Uuid::new_v4();
         let (tx, rx) = ws.split();
@@ -728,7 +728,7 @@ impl RealtimeEngine {
         Ok(())
     }
 
-    // Broadcast to S2 Cell (location-based room)
+    // S2 Cell로 브로드캐스트 (location-based room)
     pub async fn broadcast_to_cell(&self, cell_id: S2CellId, message: &[u8]) -> Result<()> {
         if let Some(connections) = self.rooms.get(&cell_id) {
             // Parallel broadcast with zero-copy
@@ -746,11 +746,11 @@ impl RealtimeEngine {
     }
 }
 
-// Scalability
-// - 10,000+ concurrent connections
-// - < 50ms P99 latency
-// - 100KB memory per connection
-// - Horizontal scaling ready
+// 확장성
+// - 10,000+ 동시 연결
+// - < 50ms P99 지연시간
+// - 연결당 100KB 메모리
+// - 수평 확장 준비 완료
 ```
 
 ### 4.4 Blockchain Service
@@ -777,7 +777,7 @@ pub struct BlockchainService {
 }
 
 impl BlockchainService {
-    // Send rewards with retry logic
+    // 재시도 로직이 있는 보상 전송
     pub async fn send_rewards(&self, cmd: SendRewardsCommand) -> Result<TxHash> {
         // 1. Optimize gas
         let gas_price = self.gas_optimizer.get_optimal_gas_price().await?;
@@ -805,7 +805,7 @@ impl BlockchainService {
         Ok(receipt.transaction_hash)
     }
 
-    // Monitor blockchain events
+    // 블록체인 이벤트 모니터링
     pub async fn monitor_events(&self) -> Result<()> {
         let events = self.ore_token.events();
         let mut stream = events.stream().await?;
@@ -882,7 +882,7 @@ func (gm *GenesisManager) RegisterGenesisMember(req RegisterGenesisRequest) (*Ge
     return member, nil
 }
 
-// Profile management with Genesis benefits
+// Genesis 혜택을 포함한 프로필 관리
 func (s *UserService) GetProfile(userID string) (*UserProfile, error) {
     // Check cache first
     cached, _ := s.cache.Get(fmt.Sprintf("profile:%s", userID)).Result()
@@ -924,7 +924,7 @@ type AuthService struct {
     kafka        *kafka.Producer
 }
 
-// Enhanced JWT with Genesis status and comprehensive claims
+// Genesis 상태 및 포괄적인 claims를 포함한 향상된 JWT
 func (s *AuthService) IssueToken(userID string) (*TokenPair, error) {
     // Get user with Genesis status and detailed profile
     var user struct {
@@ -994,7 +994,7 @@ func (s *AuthService) getTokenDuration(isGenesis bool) time.Duration {
     return 24 * time.Hour // Regular: 24 hours
 }
 
-// Initialize RSA key pair for JWT signing (auto-generated on startup)
+// JWT 서명용 RSA 키 쌍 초기화 (시작 시 자동 생성)
 func (s *AuthService) initializeKeys() error {
     privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
     if err != nil {
@@ -1021,7 +1021,7 @@ type AdService struct {
     locationClient LocationServiceClient
 }
 
-// Location-based ad matching
+// 위치 기반 광고 매칭
 func (s *AdService) GetRelevantAds(location Location) ([]*Ad, error) {
     // 1. Get S2 cell for location
     cellID := s2.CellIDFromLatLng(s2.LatLngFromDegrees(location.Lat, location.Lng))
@@ -1056,7 +1056,7 @@ func (s *AdService) GetRelevantAds(location Location) ([]*Ad, error) {
     return filtered, nil
 }
 
-// Consume location events for ad triggers
+// 광고 트리거를 위한 위치 이벤트 소비
 func (s *AdService) ConsumeLocationEvents() {
     s.kafkaConsumer.Subscribe("events.location.updated")
 
@@ -1083,7 +1083,7 @@ type AnalyticsService struct {
     metrics      *prometheus.Registry
 }
 
-// Consume all events for analytics
+// 분석을 위한 모든 이벤트 소비
 func (s *AnalyticsService) StartEventConsumer() {
     topics := []string{
         "events.location.updated",
@@ -1100,7 +1100,7 @@ func (s *AnalyticsService) StartEventConsumer() {
     }
 }
 
-// Process and store in TimescaleDB
+// TimescaleDB에 처리 및 저장
 func (s *AnalyticsService) processEvent(message *kafka.Message) {
     // 1. Parse event
     var event map[string]interface{}
@@ -1120,7 +1120,7 @@ func (s *AnalyticsService) processEvent(message *kafka.Message) {
     s.updateAggregations(message.Topic, event)
 }
 
-// Real-time metrics API
+// 실시간 메트릭 API
 func (s *AnalyticsService) GetRealTimeMetrics() (*Metrics, error) {
     metrics := &Metrics{}
 
@@ -1145,7 +1145,7 @@ func (s *AnalyticsService) GetRealTimeMetrics() (*Metrics, error) {
 ### 5.5 Gateway Service
 
 ```go
-// Package main provides the API Gateway service implementation
+// API Gateway 서비스 구현을 제공하는 패키지
 package main
 
 import (
@@ -1171,7 +1171,7 @@ import (
     "github.com/prometheus/client_golang/prometheus"
 )
 
-// Gateway Service Architecture
+// Gateway 서비스 아키텍처
 type GatewayService struct {
     app            *fiber.App
     config         *GatewayConfig
@@ -1182,7 +1182,7 @@ type GatewayService struct {
 
 type GatewayConfig struct {
     Port           string                    `json:"port"`
-    Redis          *redis.ClusterClient     // Redis client for JWT public key retrieval
+    Redis          *redis.ClusterClient     // JWT public key 조회용 Redis client
     Services       map[string]ServiceConfig  `json:"services"`
     RateLimit      RateLimitConfig          `json:"rate_limit"`
     CircuitBreaker CircuitBreakerConfig     `json:"circuit_breaker"`
@@ -1207,7 +1207,7 @@ type CircuitBreakerConfig struct {
     HalfOpenRequests int          `json:"half_open_requests"`
 }
 
-// Initialize Gateway with production-ready configuration
+// 프로덕션용 설정으로 Gateway 초기화
 func NewGatewayService(config *GatewayConfig) *GatewayService {
     app := fiber.New(fiber.Config{
         BodyLimit:        4 * 1024 * 1024, // 4MB
@@ -1247,7 +1247,7 @@ func NewGatewayService(config *GatewayConfig) *GatewayService {
     return gateway
 }
 
-// JWT Authentication Middleware with RS256 and comprehensive Genesis support
+// RS256 및 포괄적인 Genesis 지원을 포함한 JWT 인증 미들웨어
 func (g *GatewayService) AuthMiddleware() fiber.Handler {
     return func(c *fiber.Ctx) error {
         // Extract Bearer token from Authorization header
@@ -1354,7 +1354,7 @@ func (g *GatewayService) AuthMiddleware() fiber.Handler {
     }
 }
 
-// Intelligent Rate Limiting with user/IP fallback
+// 사용자/IP fallback을 사용하는 지능형 Rate Limiting
 func (g *GatewayService) RateLimitMiddleware() fiber.Handler {
     return limiter.New(limiter.Config{
         Max:        g.config.RateLimit.RequestsPerMinute,
@@ -1384,7 +1384,7 @@ func (g *GatewayService) RateLimitMiddleware() fiber.Handler {
     })
 }
 
-// Anti-cheat rate limiting for location updates
+// 위치 업데이트용 anti-cheat rate limiting
 func (g *GatewayService) LocationRateLimit() fiber.Handler {
     return limiter.New(limiter.Config{
         Max:        2, // Maximum 2 location updates per minute
@@ -1402,7 +1402,7 @@ func (g *GatewayService) LocationRateLimit() fiber.Handler {
     })
 }
 
-// Service Proxy with Circuit Breaker and Retry Logic
+// Circuit Breaker 및 재시도 로직을 포함한 서비스 프록시
 func (g *GatewayService) ProxyToService(serviceName string) fiber.Handler {
     serviceConfig, exists := g.config.Services[serviceName]
     if !exists {
@@ -1463,7 +1463,7 @@ func (g *GatewayService) ProxyToService(serviceName string) fiber.Handler {
     }
 }
 
-// WebSocket Proxy for Realtime Service
+// Realtime Service용 WebSocket 프록시
 func (g *GatewayService) WebSocketProxy() fiber.Handler {
     return func(c *fiber.Ctx) error {
         // WebSocket authentication via query parameter
@@ -1493,7 +1493,7 @@ func (g *GatewayService) WebSocketProxy() fiber.Handler {
     }
 }
 
-// Comprehensive Route Configuration
+// 포괄적인 라우트 설정
 func (g *GatewayService) setupRoutes() {
     // System endpoints (no auth required)
     g.app.Get("/health", g.healthCheck)
@@ -1577,7 +1577,7 @@ func (g *GatewayService) setupRoutes() {
     g.app.Get("/ws", g.WebSocketProxy())
 }
 
-// Circuit Breaker Implementation for Service Resilience
+// 서비스 복원력을 위한 Circuit Breaker 구현
 type CircuitBreaker struct {
     breakers map[string]*ServiceBreaker
     mu       sync.RWMutex
@@ -1659,7 +1659,7 @@ func (cb *CircuitBreaker) RecordFailure(service string) {
     }
 }
 
-// Intelligent Error Handling with Service Context
+// 서비스 컨텍스트를 포함한 지능형 에러 처리
 func (g *GatewayService) handleProxyError(c *fiber.Ctx, err error, service string) error {
     // Log error with full context for debugging
     requestID := c.Get("X-Request-ID")
@@ -1697,7 +1697,7 @@ func (g *GatewayService) handleProxyError(c *fiber.Ctx, err error, service strin
     }
 }
 
-// Service Health Monitoring System
+// 서비스 헬스 모니터링 시스템
 type HealthChecker struct {
     services map[string]ServiceConfig
     statuses map[string]bool
@@ -1750,7 +1750,7 @@ func (g *GatewayService) checkServiceHealth(name string, config ServiceConfig) {
     }
 }
 
-// Health Check Endpoint
+// 헬스 체크 엔드포인트
 func (g *GatewayService) healthCheck(c *fiber.Ctx) error {
     statuses := g.healthChecker.GetStatuses()
 
@@ -1775,7 +1775,7 @@ func (g *GatewayService) healthCheck(c *fiber.Ctx) error {
     })
 }
 
-// Utility Functions
+// 유틸리티 함수들
 func generateRequestID() string {
     return fmt.Sprintf("req_%d_%d", time.Now().UnixNano(), rand.Intn(1000))
 }
@@ -1817,7 +1817,7 @@ func customErrorHandler(c *fiber.Ctx, err error) error {
     })
 }
 
-// Prometheus Metrics Implementation
+// Prometheus 메트릭 구현
 type PrometheusMetrics struct {
     requestCount   *prometheus.CounterVec
     requestLatency *prometheus.HistogramVec
@@ -1885,7 +1885,7 @@ func (m *PrometheusMetrics) RecordCircuitOpen(service string) {
     m.errorCount.WithLabelValues(service, "circuit_open").Inc()
 }
 
-// System Status and Metrics Endpoints
+// 시스템 상태 및 메트릭 엔드포인트
 func (g *GatewayService) systemStatus(c *fiber.Ctx) error {
     return c.JSON(fiber.Map{
         "service": "ORE Platform Gateway",
@@ -1903,10 +1903,10 @@ func (g *GatewayService) prometheusMetrics(c *fiber.Ctx) error {
     return c.SendString("# Prometheus metrics endpoint\n# Use promhttp.Handler() in production")
 }
 
-// Global start time for uptime calculation
+// 가동 시간 계산용 전역 시작 시간
 var startTime = time.Now()
 
-// Configuration Management
+// 설정 관리
 func LoadGatewayConfig() *GatewayConfig {
     // Initialize Redis client for JWT public key retrieval
     redis := redis.NewClusterClient(&redis.ClusterOptions{
@@ -1986,7 +1986,7 @@ func getEnv(key, defaultValue string) string {
     return defaultValue
 }
 
-// Main function to run the Gateway Service
+// Gateway 서비스 실행 메인 함수
 func main() {
     // Load configuration from environment
     config := LoadGatewayConfig()
@@ -2016,7 +2016,7 @@ func main() {
     }
 }
 
-// Helper function to get service names for logging
+// 로깅용 서비스 이름 가져오기 헬퍼 함수
 func getServiceNames(services map[string]ServiceConfig) []string {
     names := make([]string, 0, len(services))
     for name := range services {
@@ -2025,77 +2025,77 @@ func getServiceNames(services map[string]ServiceConfig) []string {
     return names
 }
 
-// Performance Characteristics (Production Tested)
-// - Request latency overhead: < 5ms P95
-// - Throughput capacity: 50,000 requests/second
-// - Memory usage: < 200MB (10K concurrent connections)
-// - Circuit breaker: 5 failures trigger 30s timeout
-// - Rate limiting: 60 req/min per user, 120 req/min for Genesis
-// - Health check interval: 30 seconds
-// - WebSocket proxy: Full duplex with authentication
-// - Error recovery: Automatic with exponential backoff
+// 성능 특성 (프로덕션 테스트 완료)
+// - 요청 지연 오버헤드: < 5ms P95
+// - 처리량 용량: 50,000 requests/second
+// - 메모리 사용량: < 200MB (10K 동시 연결)
+// - Circuit breaker: 5회 실패 시 30초 timeout 트리거
+// - Rate limiting: 일반 사용자 60 req/min, Genesis 120 req/min
+// - Health check 간격: 30초
+// - WebSocket 프록시: 인증을 포함한 Full duplex
+// - 에러 복구: Exponential backoff를 사용한 자동 복구
 ```
 
-## 6. Data Architecture
+## 6. 데이터 아키텍처
 
 ### 6.1 PostgreSQL (Primary Database)
 
-#### 6.1.1 Database Schema Management Strategy
+#### 6.1.1 Database Schema 관리 전략
 
-The ORE platform uses a **Migration-First approach** for database schema management:
+ORE 플랫폼은 데이터베이스 스키마 관리를 위해 **Migration-First 접근법**을 사용합니다:
 
 ```yaml
 Migration-First Database Strategy:
-  Philosophy: "Let the services own their schemas via versioned migrations"
+  Philosophy: "서비스가 버전 관리되는 migration을 통해 스키마를 소유"
 
-  Implementation (2025 Industry Standard):
-    - No static table definitions in infrastructure/docker/postgres/init.sql
-    - Each service manages its own database schema via embedded migrations
-    - Database initialization only creates extensions and basic setup
+  구현 (2025 업계 표준):
+    - infrastructure/docker/postgres/init.sql에 정적 테이블 정의 없음
+    - 각 서비스가 embedded migration을 통해 자체 database schema 관리
+    - Database 초기화는 extension과 기본 설정만 생성
 
-  Service-Specific Schema Management:
-    Rust Services (SQLx Migration-First - 70% market share):
-      - Embedded migrations using sqlx::migrate!() macro
-      - Versioned migration files: migrations/YYYYMMDD_description.sql
-      - Automatic migration execution on service startup
-      - Compile-time query verification with offline mode support
-      - Production-safe rollback capabilities
+  서비스별 Schema 관리:
+    Rust Services (SQLx Migration-First - 70% 시장 점유율):
+      - sqlx::migrate!() macro를 사용한 embedded migration
+      - 버전 관리된 migration 파일: migrations/YYYYMMDD_description.sql
+      - 서비스 시작 시 자동 migration 실행
+      - Offline mode 지원으로 컴파일 타임 쿼리 검증
+      - Production-safe rollback 기능
 
     Go Services (GORM + External Migrations):
-      - External migration tools (goose/migrate) for production
-      - GORM auto-migration for development only
-      - Struct-based schema definitions with explicit migrations
+      - Production용 external migration tool (goose/migrate)
+      - 개발 전용 GORM auto-migration
+      - 명시적 migration이 있는 struct 기반 schema 정의
 
-  Benefits:
-    - No schema conflicts between services
-    - Independent service deployments
-    - Schema evolution tied to service releases
-    - Simplified database setup for development
+  이점:
+    - 서비스 간 schema 충돌 없음
+    - 독립적인 서비스 배포
+    - 서비스 릴리스와 연동된 schema 진화
+    - 개발용 database 설정 간소화
 
-  Trade-offs (and Modern Solutions):
-    ❌ Coordination for shared tables:
-      ✅ Solution: Event-driven architecture eliminates most sharing needs
+  Trade-offs (및 현대적 해결책):
+    ❌ 공유 테이블 조정 필요:
+      ✅ Solution: Event-driven architecture로 대부분의 공유 필요성 제거
 
-    ❌ Initial setup takes longer:
-      ✅ Solution: 30 seconds per service vs hours of schema conflicts
+    ❌ 초기 설정 시간 증가:
+      ✅ Solution: 서비스당 30초 vs schema 충돌로 인한 수 시간
 
-    ❌ Distributed schema documentation:
-      ✅ Solution: Each service documents its own schema (better ownership)
+    ❌ 분산된 schema 문서화:
+      ✅ Solution: 각 서비스가 자체 schema 문서화 (더 나은 ownership)
 
-  Industry Context:
-    - ORM-first is the 2025 standard for microservices (Netflix, Spotify, Uber, Stripe)
-    - Eliminates deployment coupling between services
-    - Enables true "database per service" microservices principle
-    - Static SQL schemas are considered legacy anti-pattern in modern microservices
+  업계 현황:
+    - ORM-first가 2025년 microservices 표준 (Netflix, Spotify, Uber, Stripe)
+    - 서비스 간 배포 coupling 제거
+    - 진정한 "database per service" microservices 원칙 실현
+    - 정적 SQL schema는 현대 microservices에서 legacy anti-pattern으로 간주
 ```
 
-#### 6.1.2 Database Schema Structure
+#### 6.1.2 Database Schema 구조
 
-**Note:** The following schema represents the logical structure. Actual tables are created by each service's ORM auto-migration during startup.
+**Note:** 다음 schema는 논리적 구조를 나타냅니다. 실제 테이블은 각 서비스의 ORM auto-migration에 의해 시작 시 생성됩니다.
 
 ```sql
--- Core domain tables (managed by respective services)
--- users table: Created by auth-service via GORM auto-migration
+-- Core domain tables (각 서비스가 관리)
+-- users table: auth-service가 GORM auto-migration으로 생성
 CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     wallet_address VARCHAR(42) UNIQUE,
@@ -2107,7 +2107,7 @@ CREATE TABLE users (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Location domain: Created by location-service via embedded SQLx migrations
+-- Location domain: location-service가 embedded SQLx migration으로 생성
 CREATE TABLE locations (
     id BIGSERIAL PRIMARY KEY,
     user_id UUID REFERENCES users(id),
@@ -2117,7 +2117,7 @@ CREATE TABLE locations (
     recorded_at TIMESTAMPTZ DEFAULT NOW()
 ) PARTITION BY RANGE (recorded_at);
 
--- Game domain: Created by game-service via embedded SQLx migrations
+-- Game domain: game-service가 embedded SQLx migration으로 생성
 CREATE TABLE coins (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     location GEOGRAPHY(POINT, 4326) NOT NULL,
@@ -2130,7 +2130,7 @@ CREATE TABLE coins (
     collected_at TIMESTAMPTZ
 );
 
--- Game domain: Created by game-service via embedded SQLx migrations
+-- Game domain: game-service가 embedded SQLx migration으로 생성
 CREATE TABLE pickaxes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID REFERENCES users(id),
@@ -2140,7 +2140,7 @@ CREATE TABLE pickaxes (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- User domain: Created by user-service via GORM auto-migration
+-- User domain: user-service가 GORM auto-migration으로 생성
 CREATE TABLE genesis_members (
     user_id UUID PRIMARY KEY REFERENCES users(id),
     genesis_number INTEGER UNIQUE CHECK (genesis_number BETWEEN 1 AND 1000),
@@ -2151,7 +2151,7 @@ CREATE TABLE genesis_members (
     joined_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Ad domain: Created by ad-service via GORM auto-migration
+-- Ad domain: ad-service가 GORM auto-migration으로 생성
 CREATE TABLE ad_campaigns (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     advertiser_id UUID REFERENCES users(id),
@@ -2166,7 +2166,7 @@ CREATE TABLE ad_campaigns (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Optimized indexes
+-- 최적화된 index
 CREATE INDEX idx_locations_s2cell ON locations(s2_cell_id);
 CREATE INDEX idx_locations_user_time ON locations(user_id, recorded_at DESC);
 CREATE INDEX idx_coins_s2cell_available ON coins(s2_cell_id) WHERE collected_by IS NULL;
@@ -2178,7 +2178,7 @@ CREATE INDEX idx_genesis_number ON genesis_members(genesis_number);
 ### 6.2 TimescaleDB (Analytics)
 
 ```sql
--- Create hypertable for time-series data
+-- Time-series 데이터용 hypertable 생성
 CREATE TABLE events (
     time TIMESTAMPTZ NOT NULL,
     topic VARCHAR(100) NOT NULL,
@@ -2190,7 +2190,7 @@ CREATE TABLE events (
 
 SELECT create_hypertable('events', 'time');
 
--- Continuous aggregates for real-time analytics
+-- 실시간 분석용 Continuous aggregate
 CREATE MATERIALIZED VIEW hourly_stats
 WITH (timescaledb.continuous) AS
 SELECT
@@ -2202,10 +2202,10 @@ SELECT
 FROM events
 GROUP BY hour, topic;
 
--- Retention policy (keep raw data for 30 days)
+-- Retention policy (원본 데이터 30일 보관)
 SELECT add_retention_policy('events', INTERVAL '30 days');
 
--- Compression policy (compress after 7 days)
+-- Compression policy (7일 후 압축)
 ALTER TABLE events SET (
     timescaledb.compress,
     timescaledb.compress_segmentby = 'topic'
@@ -2217,14 +2217,14 @@ SELECT add_compression_policy('events', INTERVAL '7 days');
 ### 6.3 Redis Cluster (Cache & Real-time)
 
 ```yaml
-Cluster Configuration:
-  - 3 master nodes
-  - 3 replica nodes
+Cluster 구성:
+  - 3 master node
+  - 3 replica node
   - Automatic failover
   - Consistent hashing
 
-Data Structures:
-  # User sessions
+Data 구조:
+  # User session
   STRING session:{token} → user_data
   TTL: 24 hours
 
@@ -2236,23 +2236,23 @@ Data Structures:
   HASH user:state:{user_id} → game_state
   SET coins:cell:{cell_id} → available_coins
 
-  # Leaderboards
+  # Leaderboard
   ZSET leaderboard:global → scores
   ZSET leaderboard:daily → today_scores
   ZSET leaderboard:genesis → genesis_only
 
   # Rate limiting
   STRING rate:{user_id}:{minute} → count
-  TTL: 60 seconds
+  TTL: 60초
 
-  # Real-time metrics
+  # 실시간 메트릭
   HASH metrics:realtime → {
     active_users: count,
     coins_collected: count,
     quests_completed: count
   }
 
-  # Pub/Sub for real-time updates
+  # 실시간 업데이트용 Pub/Sub
   PUBSUB channels:
     - location:updates
     - game:events
@@ -2310,9 +2310,11 @@ Schema Registry:
     - AdViewedEvent
 ```
 
-## 7. API Design
+## 7. API 설계
 
-### 7.1 REST API Structure
+> **📋 Related Documentation**: 이 섹션은 API endpoint와 프로토콜을 정의합니다. API 문서화(OpenAPI/Swagger, utoipa, swaggo)의 구현 세부사항은 [API Documentation Strategy](Api-Documentation-Strategy)를 참고하세요.
+
+### 7.1 REST API 구조
 
 ```yaml
 Base URL: https://api.ore.game/v1
@@ -2370,7 +2372,7 @@ Analytics: GET    /analytics/me
   GET    /analytics/events
 ```
 
-### 7.2 WebSocket Protocol
+### 7.2 WebSocket 프로토콜
 
 ```yaml
 Connection: wss://ws.ore.game/v1/realtime
@@ -2400,7 +2402,7 @@ Heartbeat:
   ← {"type": "pong"}
 ```
 
-### 7.3 gRPC Internal APIs
+### 7.3 gRPC Internal API
 
 ```protobuf
 syntax = "proto3";
@@ -2435,7 +2437,7 @@ service BlockchainService {
 }
 ```
 
-## 8. Security Architecture
+## 8. 보안 아키텍처
 
 ### 8.1 Defense in Depth
 
@@ -2465,7 +2467,7 @@ Layer 4 - Monitoring:
   - Incident response plan
 ```
 
-### 8.2 Anti-Cheat System
+### 8.2 Anti-Cheat 시스템
 
 ```rust
 pub struct AntiCheatEngine {
@@ -2475,7 +2477,7 @@ pub struct AntiCheatEngine {
 }
 
 impl AntiCheatEngine {
-    // Multi-layer validation
+    // 다층 검증
     pub async fn validate_action(&self, action: &PlayerAction) -> ValidationResult {
         // 1. Rule-based checks
         let rule_result = self.rules_engine.check(action).await?;
@@ -2499,9 +2501,9 @@ impl AntiCheatEngine {
     }
 }
 
-// Specific checks
+// 특정 체크
 impl AntiCheatEngine {
-    // GPS spoofing detection
+    // GPS spoofing 탐지
     pub async fn detect_spoofing(&self, movement: &Movement) -> bool {
         // Speed check (max 150 km/h)
         if movement.speed > 150.0 {
@@ -2518,7 +2520,7 @@ impl AntiCheatEngine {
         pattern_score > 0.9
     }
 
-    // Bot detection
+    // Bot 탐지
     pub async fn detect_bot(&self, actions: &[Action]) -> bool {
         // Click interval analysis
         let intervals = calculate_intervals(actions);
@@ -2538,176 +2540,53 @@ impl AntiCheatEngine {
 
 ## 9. Infrastructure & DevOps
 
-### 9.1 AWS Infrastructure
+> **📋 Related Documentation**: 이 섹션은 백엔드 서비스를 위한 인프라 요구사항의 개요를 제공합니다. 전체 인프라 아키텍처, AWS 상세 설정, Terraform 구성, 비용 최적화, 보안 전략, DR 계획은 [Infrastructure Spec](Infrastructure-Spec)을 참고하세요.
+
+### 9.1 인프라 요구사항 요약
 
 ```yaml
 Compute:
-  ECS Fargate:
-    Cluster: ore-prod
-    Services:
-      - location-service: 2-10 tasks
-      - game-service: 2-10 tasks
-      - realtime-engine: 2-5 tasks
-      - user-service: 1-5 tasks
-      - auth-service: 1-5 tasks
-      - ad-service: 1-5 tasks
-      - analytics-service: 1-3 tasks
-      - blockchain-service: 1-3 tasks
-
-    Task Configuration:
-      CPU: 512-4096
-      Memory: 1024-8192
-      Fargate Spot: 70% (non-critical)
+  - ECS Fargate (MVP) → EKS (Phase 3)
+  - Fargate Spot: 70% (비용 절감)
+  - Auto-scaling: CPU/Memory 기반
 
 Database:
-  RDS PostgreSQL:
-    Instance: db.r6g.large (MVP)
-    Storage: 100GB SSD (autoscaling to 1TB)
-    Multi-AZ: Yes (production)
-    Read Replicas: 1 (can scale to 5)
-    Backup: Continuous (PITR)
-
-  ElastiCache Redis:
-    Node type: cache.r6g.large
-    Cluster mode: Enabled
-    Shards: 3
-    Replicas per shard: 1
-
-  MSK (Kafka):
-    Instance type: kafka.m5.large
-    Brokers: 3
-    Storage: 1TB per broker
-    Version: 2.8.0
-
-  TimeStream (Alternative to TimescaleDB):
-    Memory store retention: 24 hours
-    Magnetic store retention: 365 days
-
-Storage:
-  S3:
-    Buckets:
-      - ore-static-assets
-      - ore-user-uploads
-      - ore-backups
-      - ore-analytics
-
-  EBS:
-    GP3 volumes for databases
-    Snapshots: Daily
+  - Aurora Serverless v2 (0.5-4 ACU)
+  - ElastiCache Serverless
+  - MSK Serverless
 
 Networking:
-  VPC:
-    CIDR: 10.0.0.0/16
-    Subnets: 6 (3 public, 3 private across 3 AZs)
+  - VPC: 10.0.0.0/16 (3 AZ)
+  - CloudFront CDN
+  - Route 53 DNS
 
-  CloudFront:
-    Origins: ALB, S3
-    Behaviors: Cache static, pass dynamic
+Monitoring:
+  - CloudWatch + Prometheus + Grafana
+  - X-Ray distributed tracing
+  - PagerDuty alerting
 
-  Route 53:
-    Hosted zones: ore.game
-    Health checks: All critical endpoints
-```
-
-### 9.2 CI/CD Pipeline
-
-```yaml
-GitHub Actions Workflow:
-
-name: Deploy to Production
-
-on:
-  push:
-    branches: [main]
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - Checkout code
-      - Run unit tests (Rust)
-      - Run unit tests (Go)
-      - Run integration tests
-      - Security scan (Snyk)
-      - Coverage report
-
-  build:
-    needs: test
-    steps:
-      - Build Rust services
-      - Build Go services
-      - Build Docker images
-      - Push to ECR
-
-  deploy:
-    needs: build
-    steps:
-      - Update ECS task definitions
-      - Blue/Green deployment
-      - Run smoke tests
-      - Rollback on failure
+CI/CD:
+  - GitHub Actions
+  - Blue/Green deployment
+  - Automated rollback
 
 Infrastructure as Code:
-  Tool: Terraform
-  Structure:
-    - modules/
-      - networking/
-      - compute/
-      - database/
-      - monitoring/
-    - environments/
-      - dev/
-      - prod/
+  - Terraform
+  - State: S3 + DynamoDB locking
+  - Modules: networking, compute, database, monitoring
 ```
 
-### 9.3 Monitoring & Observability
+**상세 내용:**
 
-```yaml
-Metrics (Prometheus + Grafana):
-  System Metrics:
-    - CPU, Memory, Disk, Network
-    - Container metrics
-    - Database performance
+- **AWS 리소스 구성**: [Infrastructure Spec](Infrastructure-Spec) Section 1-2
+- **보안 아키텍처**: [Infrastructure Spec](Infrastructure-Spec) Section 4
+- **비용 최적화**: [Infrastructure Spec](Infrastructure-Spec) Section 7
+- **DR 및 백업**: [Infrastructure Spec](Infrastructure-Spec) Section 6
+- **확장 전략**: [Infrastructure Spec](Infrastructure-Spec) Section 8
 
-  Application Metrics:
-    - Request rate, latency, errors
-    - Business KPIs
-    - Custom metrics
+## 10. 성능 최적화
 
-Logging (CloudWatch + ELK):
-  Log Aggregation:
-    - CloudWatch Logs for AWS services
-    - Elasticsearch for application logs
-    - Logstash for processing
-    - Kibana for visualization
-
-  Log Format:
-    - JSON structured logging
-    - Correlation IDs
-    - User context
-
-Tracing (X-Ray + Jaeger):
-  Distributed Tracing:
-    - End-to-end request flow
-    - Service dependencies
-    - Performance bottlenecks
-    - Error tracking
-
-Alerting:
-  PagerDuty Integration:
-    - P1: Service down, data loss risk
-    - P2: High error rate, slow response
-    - P3: Warnings, disk space
-
-  Slack Notifications:
-    - Deployments
-    - Non-critical alerts
-    - Daily summaries
-```
-
-## 10. Performance Optimization
-
-### 10.1 Caching Strategy
+### 10.1 Caching 전략
 
 ```yaml
 Multi-level Cache:
@@ -2741,7 +2620,7 @@ Cache Patterns:
     - Use for: Analytics, logs
 ```
 
-### 10.2 Database Optimization
+### 10.2 Database 최적화
 
 ```sql
 -- Partitioning strategy
@@ -2772,12 +2651,12 @@ max_client_conn = 1000
 default_pool_size = 25
 ```
 
-## 11. Cost Analysis
+## 11. 비용 분석
 
-### 11.1 Monthly Cost Breakdown
+### 11.1 월간 비용 분석
 
 ```yaml
-MVP (1,000 users):
+MVP (1,000명 사용자):
   Compute (ECS Fargate): $200
   Database (RDS): $150
   Cache (ElastiCache): $100
@@ -2787,7 +2666,7 @@ MVP (1,000 users):
   Monitoring: $50
   Total: ~$750/month
 
-10K Users:
+10K 사용자:
   Compute: $1,500
   Database: $500
   Cache: $300
@@ -2797,7 +2676,7 @@ MVP (1,000 users):
   Monitoring: $200
   Total: ~$3,500/month
 
-100K Users:
+100K 사용자:
   Compute: $8,000
   Database: $2,000
   Cache: $1,000
@@ -2807,41 +2686,41 @@ MVP (1,000 users):
   Monitoring: $1,000
   Total: ~$17,000/month
 
-Cost Optimization:
-  - Fargate Spot: 70% savings on compute
-  - Reserved Instances: 40% savings on DB
-  - S3 Intelligent Tiering: 30% savings on storage
-  - CloudFront caching: 50% savings on bandwidth
+비용 최적화:
+  - Fargate Spot: 컴퓨팅 비용 70% 절감
+  - Reserved Instances: DB 비용 40% 절감
+  - S3 Intelligent Tiering: 스토리지 비용 30% 절감
+  - CloudFront caching: 대역폭 비용 50% 절감
 ```
 
-## 12. Migration & Scaling Path
+## 12. 마이그레이션 및 확장 경로
 
-### 12.1 Future Architecture Evolution
+### 12.1 향후 아키텍처 진화
 
 ```yaml
-6 Months (10K users):
+6개월 후 (10K 사용자):
   Infrastructure:
-    - Add read replicas
-    - Enable auto-scaling
+    - Read replica 추가
+    - Auto-scaling 활성화
     - Multi-region CDN
 
   Architecture:
-    - Add API Gateway (Kong)
-    - Implement CQRS fully
-    - Add event sourcing
+    - API Gateway (Kong) 추가
+    - CQRS 완전 구현
+    - Event sourcing 추가
 
-1 Year (100K users):
+1년 후 (100K 사용자):
   Infrastructure:
-    - Multi-region deployment
+    - Multi-region 배포
     - Global database (Aurora Global)
     - Edge computing (Lambda@Edge)
 
   Architecture:
-    - Microservices: 8 → 15
-    - Add GraphQL Federation
-    - Implement Saga pattern
+    - Microservices: 8 → 15개
+    - GraphQL Federation 추가
+    - Saga pattern 구현
 
-2 Years (1M users):
+2년 후 (1M 사용자):
   Infrastructure:
     - Full Kubernetes (EKS)
     - Custom ML pipeline
@@ -2850,37 +2729,37 @@ Cost Optimization:
   Architecture:
     - 30+ microservices
     - Service mesh (Istio)
-    - Multi-cloud strategy
+    - Multi-cloud 전략
 ```
 
-### 12.2 No-Downtime Migration Strategy
+### 12.2 무중단 마이그레이션 전략
 
 ```yaml
-Database Migration: 1. Set up replication to new database
-  2. Sync data continuously
-  3. Switch reads to new DB
-  4. Switch writes to new DB
-  5. Decommission old DB
+Database 마이그레이션: 1. 새 database로 replication 설정
+  2. 데이터 지속적 동기화
+  3. Read를 새 DB로 전환
+  4. Write를 새 DB로 전환
+  5. 기존 DB 제거
 
-Service Migration: 1. Deploy new service version
-  2. Route 10% traffic (canary)
-  3. Monitor metrics
-  4. Gradually increase traffic
-  5. Complete migration or rollback
+Service 마이그레이션: 1. 새 서비스 버전 배포
+  2. 10% 트래픽 라우팅 (canary)
+  3. 메트릭 모니터링
+  4. 트래픽 점진적 증가
+  5. 마이그레이션 완료 또는 rollback
 
-Kafka Migration: 1. Set up MirrorMaker
-  2. Replicate topics
-  3. Switch consumers
-  4. Switch producers
-  5. Decommission old cluster
+Kafka 마이그레이션: 1. MirrorMaker 설정
+  2. Topic 복제
+  3. Consumer 전환
+  4. Producer 전환
+  5. 기존 클러스터 제거
 ```
 
-## 13. Development Guidelines
+## 13. 개발 가이드라인
 
-### 13.1 AI-Native Development Strategy
+### 13.1 AI-Native 개발 전략
 
 ```yaml
-Services Best Suited for AI Generation:
+AI 생성에 적합한 서비스:
   High AI Leverage (80-90% AI):
     - CRUD operations
     - API endpoints
@@ -2895,23 +2774,23 @@ Services Best Suited for AI Generation:
     - Integration code
 
   Low AI Leverage (20-40% AI):
-    - Anti-cheat algorithms
-    - Performance optimization
+    - Anti-cheat 알고리즘
+    - Performance 최적화
     - Security critical code
-    - Complex algorithms
+    - 복잡한 알고리즘
 
-Claude Code Prompts Structure:
-  1. Context: Project ORE, service name, dependencies
-  2. Requirements: Detailed specifications
-  3. Constraints: Performance, security requirements
-  4. Examples: Input/output samples
-  5. Testing: Test cases to verify
+Claude Code Prompts 구조:
+  1. Context: Project ORE, 서비스명, 의존성
+  2. Requirements: 상세 명세
+  3. Constraints: 성능, 보안 요구사항
+  4. Examples: Input/output 샘플
+  5. Testing: 검증용 테스트 케이스
 ```
 
-### 13.2 Code Organization
+### 13.2 코드 구조
 
 ```yaml
-Repository Structure:
+Repository 구조:
 ore-platform/
 ├── services/
 │   ├── location-service/    # Rust
@@ -2962,32 +2841,32 @@ _Version: 5.3_
 _Last Updated: 2025-09-17_
 _Architecture Decision Records (ADR) available in /docs/architecture/_
 
-**v5.3 Changes (September 2025):**
+**v5.3 변경사항 (2025년 9월):**
 
-- **Gateway Service Implementation (Section 5.5)**: Added comprehensive API Gateway implementation with production-ready patterns
-- **Authentication Integration**: RS256 JWT middleware with comprehensive Genesis 1000 member benefits (2x rewards, 3m auto-collect range, 72h token expiry)
-- **Service Proxy Architecture**: Circuit breaker, rate limiting, and intelligent error handling for all microservices
-- **Anti-Cheat Rate Limiting**: Location update throttling (2 req/min) to prevent GPS spoofing
-- **WebSocket Proxy**: Real-time service integration with RS256 JWT token validation
-- **Health Monitoring**: Automatic service discovery and health checks with 30-second intervals
-- **Distributed Tracing**: Request ID propagation and performance metrics collection
-- **Production Configuration**: Complete environment-based configuration with service discovery
-- **Genesis Benefits**: 2x rate limits and special header forwarding for Genesis 1000 members
-- **Error Recovery**: Graceful degradation with proper HTTP status codes and retry logic
+- **Gateway Service 구현 (Section 5.5)**: Production 환경용 패턴이 적용된 포괄적인 API Gateway 구현 추가
+- **인증 통합**: Genesis 1000 회원 혜택이 포함된 RS256 JWT middleware (2x 보상, 3m 자동 수집 범위, 72시간 토큰 유효기간)
+- **Service Proxy 아키텍처**: 모든 microservice를 위한 Circuit breaker, rate limiting, 지능형 에러 처리
+- **Anti-Cheat Rate Limiting**: GPS spoofing 방지를 위한 위치 업데이트 throttling (2 req/min)
+- **WebSocket Proxy**: RS256 JWT 토큰 검증이 포함된 realtime service 통합
+- **Health 모니터링**: 30초 간격의 자동 service discovery 및 health check
+- **Distributed Tracing**: Request ID 전파 및 성능 메트릭 수집
+- **Production 설정**: Service discovery가 포함된 완전한 환경 기반 구성
+- **Genesis 혜택**: Genesis 1000 회원을 위한 2x rate limit 및 특수 header forwarding
+- **에러 복구**: 적절한 HTTP status code와 재시도 로직을 갖춘 Graceful degradation
 
-**v5.2 Changes (September 2025):**
+**v5.2 변경사항 (2025년 9월):**
 
-- **Migration-First Database Strategy**: Updated from deprecated "ORM-first" to industry-standard SQLx Migration-First approach
-- **Embedded SQLx Migrations**: Services now use `sqlx::migrate!()` macro for automatic schema management
-- **Batch Processing Optimization**: Added UNNEST-based batch processing (2.13x performance improvement)
-- **Compile-Time Query Verification**: Implemented offline SQLx query cache for production deployments
-- **Production-Safe Rollback**: Added migration rollback capabilities for schema changes
-- **2025 Industry Compliance**: All database patterns now follow modern Rust microservices standards (70%+ market adoption)
+- **Migration-First Database 전략**: 구식 "ORM-first"에서 업계 표준 SQLx Migration-First 방식으로 업데이트
+- **Embedded SQLx Migration**: 서비스가 자동 schema 관리를 위해 `sqlx::migrate!()` macro 사용
+- **Batch Processing 최적화**: UNNEST 기반 batch processing 추가 (2.13배 성능 향상)
+- **컴파일 타임 쿼리 검증**: Production 배포를 위한 offline SQLx query cache 구현
+- **Production-Safe Rollback**: Schema 변경을 위한 migration rollback 기능 추가
+- **2025년 업계 표준 준수**: 모든 database 패턴이 현대적인 Rust microservices 표준 준수 (70%+ 시장 채택률)
 
-**v5.1 Changes:**
+**v5.1 변경사항:**
 
-- Added zero-copy GPS processing pipeline implementation details
-- Updated Location Service with modern S2 geometry integration
-- Added modern bit-preserving u64→i64 conversion pattern for PostgreSQL compatibility
-- Enhanced spatial indexing with hybrid R-tree + S2 hierarchical approach
-- Added performance characteristics for 100K updates/sec throughput target
+- Zero-copy GPS 처리 파이프라인 구현 세부사항 추가
+- 현대적인 S2 geometry 통합이 포함된 Location Service 업데이트
+- PostgreSQL 호환성을 위한 현대적인 비트 보존 u64→i64 변환 패턴 추가
+- Hybrid R-tree + S2 계층적 접근 방식으로 spatial indexing 개선
+- 100K updates/sec 처리량 목표를 위한 성능 특성 추가
