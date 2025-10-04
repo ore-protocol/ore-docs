@@ -190,7 +190,7 @@ AR Framework:
   - AR Occlusion Manager
 
 Maps & Location:
-  - GO Map 3.0 (Unity Asset Store)
+  - Online Maps v4.2.1 (Unity Asset Store, $120)
   - Unity Location Service
   - GPS 필터링 (Kalman Filter with ScriptableObject config)
 
@@ -228,7 +228,7 @@ Assets/
 │   ├── Animations/
 │   └── Resources/
 ├── Plugins/
-│   ├── GOMap/
+│   ├── OnlineMaps/
 │   ├── RestSharp/
 │   └── WebSocket/
 └── StreamingAssets/

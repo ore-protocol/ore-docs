@@ -1653,9 +1653,9 @@ public class UIController : MonoBehaviour
 }
 ```
 
-### 3.1 Location System (GPS + GO Map)
+### 3.1 Location System (GPS + Online Maps)
 
-> **참고**: Mapbox SDK for Unity는 2021년 deprecated 되었습니다. GO Map이 2025년 AR 위치 기반 게임의 산업 표준입니다.
+> **참고**: Mapbox SDK for Unity(2021 deprecated), GO Map(Asset Store deprecated), Google Maps Platform for Unity(2022 sunset) 모두 사용 불가. Online Maps v4가 2025년 9월 현재 검증된 상용 솔루션입니다.
 
 #### 3.1.1 GPS 추적 및 Kalman 필터링
 
@@ -1680,32 +1680,39 @@ public class UIController : MonoBehaviour
 **네트워크 의존성:**
 위치 시스템은 완전히 네트워크에 의존합니다. 오프라인 상태에서는 게임이 일시정지되며, 재연결 시 서버와 동기화합니다.
 
-#### 3.1.2 지도 렌더링 (GO Map)
+#### 3.1.2 지도 렌더링 (Online Maps v4)
 
-**GO Map 3.0 통합:**
+**Online Maps v4 통합:**
 
-- **출처**: Unity Asset Store ($150-300 일회성 구매)
-- **기능**: 2D/3D 지도, AR 통합, 커스텀 마커, 실시간 위치 추적
-- **타일 제공자**: MapTiler (권장 - 무료 tier 제공), Mapbox Tiles API, OpenStreetMap
+- **출처**: Unity Asset Store ($120 일회성 구매)
+- **버전**: 4.2.1 (2025.09.01 최신 업데이트)
+- **평가**: 5/5 stars (218 reviews) - 모바일 성능 검증됨
+- **Unity 호환**: 2021.3.38+ (Unity 6 지원)
+- **기능**: 2D/3D 지도, AR/VR 통합, Online/Offline maps, 실시간 위치 추적
+- **타일 제공자**: 16개 providers (Google Maps, Mapbox tiles, OpenStreetMap, ArcGIS, Bing Maps 등)
 
 **Map 설정:**
 
 ```csharp
-[Header("Map Settings")]
-public GOMap.GOMapType mapType = GOMap.GOMapType.MapTilerSatellite;
-public int initialZoom = 18;  // 건물 레벨 디테일
-public bool enableAR = true;   // 지도에 AR 마커 배치
+using InfinityCode.OnlineMapsExamples;
 
-[Header("Tile Provider")]
-public string mapTilerApiKey;  // MapTiler 대시보드에서 발급
-public GOMap.GOTileProvider tileProvider = GOMap.GOTileProvider.MapTiler;
+[Header("Map Settings")]
+public OnlineMapsProvider mapProvider = OnlineMapsProvider.GoogleMaps;
+public OnlineMapsProviderEnum.GoogleMapsType mapType = OnlineMapsProviderEnum.GoogleMapsType.Satellite;
+public int initialZoom = 18;  // 건물 레벨 디테일
+public Vector2 initialLocation;  // GPS 좌표 (위도, 경도)
+
+[Header("Tile Provider API Keys")]
+public string googleMapsApiKey;  // Google Maps Platform (타일만, 게임 SDK 아님)
+public string mapboxAccessToken;  // Mapbox tiles API (대안)
 ```
 
 **성능 최적화:**
 
-- 타일 캐싱: 오프라인 뷰를 위한 50MB 로컬 캐시
-- Level-of-detail (LOD): 줌 레벨에 따라 자동 조정
-- 비동기 타일 로딩: 맵 pan/zoom 중 UI 블로킹 방지
+- 타일 캐싱: Online/Offline 모드 지원 (50MB+ local cache)
+- Level-of-detail (LOD): 줌 레벨 자동 조정
+- 비동기 타일 로딩: Non-blocking UI (user reviews 검증)
+- 모바일 최적화: Android/iOS에서 "fast performance" 확인됨
 
 ```csharp
 public class LocationManager : MonoBehaviour, ILocationManager
