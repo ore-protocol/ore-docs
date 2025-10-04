@@ -68,7 +68,7 @@ AI 도구 (필수):
 
 클라우드 서비스:
   - AWS (ECS Fargate, RDS, ElastiCache)
-  - Mapbox (지도)
+  - GO Map 3.0 + MapTiler (지도 - Unity Asset Store $150-300)
   - Firebase (인증, 푸시)
   # Polygon 제외 (Post-MVP로 이동)
 ```
@@ -131,7 +131,7 @@ Unity 프로젝트:
   - Unity 6.0 LTS 프로젝트 생성
   - URP (Universal Render Pipeline) 설정
   - AR Foundation 6.0+ 패키지 설치
-  - Mapbox SDK 통합
+  - GO Map 3.0 통합 (Unity Asset Store)
   - 기본 씬 구성 (로그인, 메인, AR)
 
 Rust 개발 환경:
@@ -245,8 +245,8 @@ Unity 작업:
     - GPS 필터링 (칼만 필터)
     - 배터리 최적화 설정
 
-  Mapbox 통합:
-    - 지도 렌더링
+  GO Map 통합:
+    - 지도 렌더링 (MapTiler tiles)
     - 현재 위치 마커
     - 줌/패닝 컨트롤
 
@@ -1166,10 +1166,11 @@ Week 16 (12월 말): ✓ MVP 완성
     - 프로덕션: $500 × 1 = $500
 
   기타 서비스:
-    - Mapbox: $0 (무료 티어)
+    - GO Map 3.0: $150-300 (일회성 구매, Unity Asset Store)
+    - MapTiler: $0 (무료 티어 - 100K map loads/월)
     - Firebase: $0 (무료 티어)
     - 도메인/SSL: $100
-    소계: $1,800
+    소계: $2,050
 
 마케팅:
   - Genesis 캠페인: $3,000

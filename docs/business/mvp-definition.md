@@ -190,9 +190,9 @@ AR Framework:
   - AR Occlusion Manager
 
 Maps & Location:
-  - Mapbox SDK for Unity 2.1.1
+  - GO Map 3.0 (Unity Asset Store)
   - Unity Location Service
-  - GPS 필터링 (칼만 필터)
+  - GPS 필터링 (Kalman Filter with ScriptableObject config)
 
 Networking:
   - RestSharp (REST API)
@@ -228,7 +228,7 @@ Assets/
 │   ├── Animations/
 │   └── Resources/
 ├── Plugins/
-│   ├── Mapbox/
+│   ├── GOMap/
 │   ├── RestSharp/
 │   └── WebSocket/
 └── StreamingAssets/

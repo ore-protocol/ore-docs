@@ -1653,7 +1653,11 @@ public class UIController : MonoBehaviour
 }
 ```
 
-### 3.1 Location System (GPS + Mapbox)
+### 3.1 Location System (GPS + GO Map)
+
+> **참고**: Mapbox SDK for Unity는 2021년 deprecated 되었습니다. GO Map이 2025년 AR 위치 기반 게임의 산업 표준입니다.
+
+#### 3.1.1 GPS 추적 및 Kalman 필터링
 
 **업데이트 주기 설정 근거:**
 
@@ -1666,8 +1670,42 @@ public class UIController : MonoBehaviour
   - 일반적인 GPS 오차가 2-5m이므로 2m 미만 이동은 무시
   - 걷기 속도(4km/h = 1.1m/s) 고려 시 적절한 값
 
+**Kalman Filter 통합 (2025 표준):**
+
+- Adaptive Kalman filter로 GPS 스무딩 (jitter 감소, outlier 처리)
+- Position-only uncertainty 추적 (모바일 배터리 최적화)
+- ScriptableObject configuration으로 런타임 튜닝
+- Walking/Driving/Testing 프로파일 지원
+
 **네트워크 의존성:**
 위치 시스템은 완전히 네트워크에 의존합니다. 오프라인 상태에서는 게임이 일시정지되며, 재연결 시 서버와 동기화합니다.
+
+#### 3.1.2 지도 렌더링 (GO Map)
+
+**GO Map 3.0 통합:**
+
+- **출처**: Unity Asset Store ($150-300 일회성 구매)
+- **기능**: 2D/3D 지도, AR 통합, 커스텀 마커, 실시간 위치 추적
+- **타일 제공자**: MapTiler (권장 - 무료 tier 제공), Mapbox Tiles API, OpenStreetMap
+
+**Map 설정:**
+
+```csharp
+[Header("Map Settings")]
+public GOMap.GOMapType mapType = GOMap.GOMapType.MapTilerSatellite;
+public int initialZoom = 18;  // 건물 레벨 디테일
+public bool enableAR = true;   // 지도에 AR 마커 배치
+
+[Header("Tile Provider")]
+public string mapTilerApiKey;  // MapTiler 대시보드에서 발급
+public GOMap.GOTileProvider tileProvider = GOMap.GOTileProvider.MapTiler;
+```
+
+**성능 최적화:**
+
+- 타일 캐싱: 오프라인 뷰를 위한 50MB 로컬 캐시
+- Level-of-detail (LOD): 줌 레벨에 따라 자동 조정
+- 비동기 타일 로딩: 맵 pan/zoom 중 UI 블로킹 방지
 
 ```csharp
 public class LocationManager : MonoBehaviour, ILocationManager
