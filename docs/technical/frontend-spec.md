@@ -100,20 +100,30 @@ Scene Structure:
   Persistent:
     Object: __PersistentManagers
     Components:
+      - CoreLifetimeScope # VContainer Parent Scope (루트)
       - GameManager # 게임 상태 오케스트레이션
       - NetworkManager # WebSocket + REST API
       - LocationManager # GPS tracking + geofencing
-      - ARManager # AR Foundation 통합
-      - CoreLifetimeScope # VContainer DI 루트
       - AudioManager # 배경음/효과음
       - AnalyticsManager # 이벤트 추적
 
     Lifetime: 앱 시작부터 종료까지 유지
     Purpose: 씬 전환에도 상태/연결 보존
 
+    DI Architecture:
+      - CoreLifetimeScope는 Parent Scope (모든 씬이 상속)
+      - Scene-specific 매니저는 각 씬의 Child Scope에 등록
+      - Parent → Child 의존성 주입 가능 (Child → Parent 불가)
+
   # 2. Map.unity (Primary Scene)
   Map.unity:
     Description: 전략적 네비게이션 씬 (Pokémon GO 메인 화면과 유사)
+
+    VContainer DI:
+      - MapLifetimeScope # Child Scope (CoreLifetimeScope 상속)
+      - Parent로부터 주입: GameManager, NetworkManager, LocationManager
+      - Scene-specific 등록: MapController, MapUIController, GeofencingService
+
     UI Components:
       - OnlineMapsComponent # 전체 화면 지도
       - PlayerMarker # 실시간 GPS 위치
@@ -122,10 +132,13 @@ Scene Structure:
       - BottomNavigation # [Map][Inventory][Quests][Profile]
       - TopStatusBar # GPS/네트워크/배터리 상태
 
-    Services:
+    Scene-Specific Components (MapLifetimeScope에 등록):
       - MapController # Online Maps v4 통합
+      - MapUIController # 지도 UI 컨트롤 (줌, 팔로우)
       - GeofencingService # Fracture 경계 감지
       - FractureVisualizer # 균열 이펙트 렌더링
+
+    Note: 이 씬에는 AR 기능 없음 (ARManager 없음)
 
     Loaded When:
       - 앱 시작 (로그인 후)
@@ -143,20 +156,34 @@ Scene Structure:
   # 3. ARGame.unity (Collection Scene)
   ARGame.unity:
     Description: AR 수집 게임플레이 씬 (경량화, AR만 집중)
+
+    VContainer DI:
+      - ARGameLifetimeScope # Child Scope (CoreLifetimeScope 상속)
+      - Parent로부터 주입: GameManager, NetworkManager, LocationManager
+      - Scene-specific 등록: ARManager, VeinExplorationController, MiningController
+
     UI Components:
       - ARCameraBackground # AR Foundation 카메라 뷰
       - DistanceHint # "따뜻해요/뜨거워요" 거리 피드백
-      - DirectionalArrow # Vein 방향 가이드
+      - DirectionalArrow # Vein 방향 가이드 (GPS 기반 bearing 계산)
       - CoreARRenderer # 발견된 Core의 3D AR 렌더링
       - MiningMinigame # 등급별 채굴 미니게임 UI
       - ExitWarning # Fracture 경계 이탈 경고 (135m)
       - BackButton # 긴급 탈출 (Map으로 복귀)
 
-    Services:
+    Scene-Specific Components (ARGameLifetimeScope에 등록):
+      - ARManager # AR Foundation 통합 (이 씬에만 존재)
       - ARContentManager # AR 오브젝트 스폰/LOD
       - VeinExplorationController # 거리 기반 힌트 시스템
       - MiningController # 채굴 미니게임 로직
       - GeofencingMonitor # 경계 이탈 감지
+
+    Navigation Method:
+      - Directional UI Overlay (GPS 기반)
+      - LocationManager로부터 현재 위치 수신 (Parent Scope injection)
+      - SceneTransitionData.veinLocation으로 bearing/distance 계산
+      - NO minimap, NO MapController (경량화)
+      - AR 카메라 뷰에만 집중
 
     Loaded When:
       - Geofencing trigger (Fracture 진입)
@@ -321,10 +348,9 @@ namespace ORE.Core
         private SceneTransitionData currentTransitionData;
         private float lastTransitionTime;
 
-        // VContainer DI
+        // VContainer DI (Persistent Managers - injected from parent scope)
         [Inject] private ILocationManager locationManager;
         [Inject] private INetworkManager networkManager;
-        [Inject] private IARManager arManager;
 
         private void Start()
         {
@@ -390,10 +416,7 @@ namespace ORE.Core
                 await Task.Yield();
             }
 
-            // 3. Activate AR camera
-            arManager.EnableARCamera();
-
-            // 4. Activate scene
+            // 3. Activate scene (ARManager will be available via ARGameLifetimeScope)
             loadOperation.allowSceneActivation = true;
             await loadOperation;
 
@@ -433,10 +456,7 @@ namespace ORE.Core
             // 2. Play Reality Crack reverse animation
             await UIManager.PlayRealityCrackReverseAnimation(digitalCrackDuration);
 
-            // 3. Disable AR camera
-            arManager.DisableARCamera();
-
-            // 4. Unload ARGame scene
+            // 3. Unload ARGame scene (ARManager lifecycle managed by ARGameLifetimeScope)
             var unloadOperation = SceneManager.UnloadSceneAsync(AR_GAME_SCENE);
             await unloadOperation;
 
@@ -483,7 +503,7 @@ namespace ORE.Core
             }
 
             // AR support check
-            if (!arManager.IsARSupported())
+            if (!ARSession.CheckIfSupported())
             {
                 UIManager.ShowError("이 기기는 AR을 지원하지 않습니다");
                 return false;
@@ -559,8 +579,9 @@ namespace ORE.Core.DI
     using VContainer.Unity;
 
     /// <summary>
-    /// Main lifetime scope for ORE Platform core services.
-    /// Manages dependency injection for GameManager, NetworkManager, LocationManager, and ARManager.
+    /// Parent/Root LifetimeScope for ORE Platform (DontDestroyOnLoad).
+    /// Registers PERSISTENT managers that survive scene transitions.
+    /// Child scopes (MapLifetimeScope, ARGameLifetimeScope) inherit from this.
     /// </summary>
     public class CoreLifetimeScope : LifetimeScope
     {
@@ -574,16 +595,69 @@ namespace ORE.Core.DI
             builder.Register<ILocationProvider, UnityLocationProvider>(Lifetime.Singleton);
             #endif
 
-            // Register MonoBehaviour managers from scene hierarchy
-            // These GameObjects must exist in the scene with their components attached
+            // Register PERSISTENT MonoBehaviour managers (Parent Scope)
+            // These exist in __PersistentManagers and survive scene transitions
             builder.RegisterComponentInHierarchy<GameManager>().AsImplementedInterfaces().AsSelf();
             builder.RegisterComponentInHierarchy<NetworkManager>().AsImplementedInterfaces().AsSelf();
             builder.RegisterComponentInHierarchy<LocationManager>().AsImplementedInterfaces().AsSelf();
-            builder.RegisterComponentInHierarchy<ARManager>().AsImplementedInterfaces().AsSelf();
 
             // Register Services as singleton - VContainer will auto-inject via constructor
             // Constructor injection prevents circular dependency issues
             builder.Register<Services>(Lifetime.Singleton);
+        }
+    }
+}
+
+// Map Scene Lifetime Scope (Child of CoreLifetimeScope)
+namespace ORE.Map.DI
+{
+    using VContainer;
+    using VContainer.Unity;
+    using ORE.Core.Map;
+
+    /// <summary>
+    /// Child LifetimeScope for Map.unity scene.
+    /// Inherits persistent managers from CoreLifetimeScope (parent).
+    /// Registers scene-specific components (MapController, GeofencingService).
+    /// </summary>
+    public class MapLifetimeScope : LifetimeScope
+    {
+        protected override void Configure(IContainerBuilder builder)
+        {
+            // Inherit from CoreLifetimeScope automatically via parent-child relationship
+
+            // Register Map scene-specific components
+            builder.RegisterComponentInHierarchy<MapController>().AsImplementedInterfaces().AsSelf();
+            builder.RegisterComponentInHierarchy<MapUIController>().AsImplementedInterfaces().AsSelf();
+            builder.RegisterComponentInHierarchy<GeofencingService>().AsImplementedInterfaces().AsSelf();
+            builder.RegisterComponentInHierarchy<FractureVisualizer>().AsImplementedInterfaces().AsSelf();
+        }
+    }
+}
+
+// ARGame Scene Lifetime Scope (Child of CoreLifetimeScope)
+namespace ORE.ARGame.DI
+{
+    using VContainer;
+    using VContainer.Unity;
+    using ORE.Core;
+
+    /// <summary>
+    /// Child LifetimeScope for ARGame.unity scene.
+    /// Inherits persistent managers from CoreLifetimeScope (parent).
+    /// Registers scene-specific AR components (ARManager, VeinExplorationController).
+    /// </summary>
+    public class ARGameLifetimeScope : LifetimeScope
+    {
+        protected override void Configure(IContainerBuilder builder)
+        {
+            // Inherit from CoreLifetimeScope automatically via parent-child relationship
+
+            // Register ARGame scene-specific components
+            builder.RegisterComponentInHierarchy<ARManager>().AsImplementedInterfaces().AsSelf();
+            builder.RegisterComponentInHierarchy<VeinExplorationController>().AsImplementedInterfaces().AsSelf();
+            builder.RegisterComponentInHierarchy<MiningController>().AsImplementedInterfaces().AsSelf();
+            builder.RegisterComponentInHierarchy<GeofencingMonitor>().AsImplementedInterfaces().AsSelf();
         }
     }
 }
@@ -607,34 +681,32 @@ namespace ORE.Core
         public static Services Instance { get; private set; }
 
         // Constructor injection (2025 VContainer best practice - prevents circular dependencies)
+        // Only persistent managers are injected
         private readonly IGameManager gameManager;
         private readonly ILocationManager locationManager;
-        private readonly IARManager arManager;
         private readonly INetworkManager networkManager;
 
         // Constructor for DI - VContainer will inject these automatically
         public Services(IGameManager gameManager, INetworkManager networkManager,
-                        ILocationManager locationManager, IARManager arManager)
+                        ILocationManager locationManager)
         {
             this.gameManager = gameManager;
             this.networkManager = networkManager;
             this.locationManager = locationManager;
-            this.arManager = arManager;
             Instance = this;
         }
 
-        // Static accessors (backward compatible)
+        // Static accessors (backward compatible - persistent managers only)
         public static IGameManager Game => Instance?.gameManager;
         public static ILocationManager Location => Instance?.locationManager;
-        public static IARManager AR => Instance?.arManager;
         public static INetworkManager Network => Instance?.networkManager;
+        // AR is NOT accessible via Services - it's scene-specific (ARGame.unity only)
 
-        // Service validation
+        // Service validation (persistent managers only)
         public static bool AreServicesReady()
         {
             return Game != null &&
                    Location != null &&
-                   AR != null &&
                    Network != null;
         }
 
@@ -657,14 +729,13 @@ namespace ORE.Core
 
     public class GameManager : MonoBehaviour, IGameManager
     {
-        // VContainer automatically injects these dependencies
+        // VContainer automatically injects dependencies from CoreLifetimeScope (parent)
         [Inject] private INetworkManager networkManager;
         [Inject] private ILocationManager locationManager;
-        [Inject] private IARManager arManager;
 
         private void Awake()
         {
-            // Dependencies are already injected by VContainer
+            // Dependencies are already injected by VContainer from parent scope
             InitializeGame();
         }
 
@@ -676,8 +747,8 @@ namespace ORE.Core
 
             try
             {
-                // Validate that all required services are injected
-                if (networkManager == null || locationManager == null || arManager == null)
+                // Validate that all required persistent services are injected
+                if (networkManager == null || locationManager == null)
                 {
                     throw new InvalidOperationException("Required services not injected");
                 }
@@ -719,6 +790,59 @@ public class NewManager : MonoBehaviour, INewManager
     }
 }
 ```
+
+**Parent-Child Scope 사용 예시:**
+
+```csharp
+// ARGame scene-specific component (registered in ARGameLifetimeScope)
+namespace ORE.ARGame
+{
+    using VContainer;
+    using ORE.Core.Interfaces;
+
+    /// <summary>
+    /// Vein exploration controller - scene-specific to ARGame.unity
+    /// Can access parent scope dependencies (LocationManager, NetworkManager)
+    /// </summary>
+    public class VeinExplorationController : MonoBehaviour
+    {
+        // Parent scope dependencies (from CoreLifetimeScope)
+        [Inject] private ILocationManager locationManager;
+        [Inject] private INetworkManager networkManager;
+
+        // Child scope dependencies (from ARGameLifetimeScope)
+        [Inject] private IARManager arManager;
+        [Inject] private IMiningController miningController;
+
+        private void Update()
+        {
+            // Access parent scope manager
+            var playerLocation = locationManager.CurrentLocation;
+
+            // Access child scope manager
+            if (arManager.IsARActive)
+            {
+                UpdateVeinDistance(playerLocation);
+            }
+        }
+
+        private void UpdateVeinDistance(Vector2d location)
+        {
+            // Use both parent and child scope dependencies seamlessly
+            var distance = CalculateDistance(location, targetVeinLocation);
+            miningController.UpdateDistanceHint(distance);
+        }
+    }
+}
+```
+
+**Parent-Child 패턴의 장점:**
+
+- ✅ Scene 컴포넌트가 persistent managers에 접근 가능 (parent scope)
+- ✅ Scene 컴포넌트가 같은 씬의 다른 컴포넌트에 접근 가능 (child scope)
+- ✅ Parent scope는 child scope에 의존 불가 (컴파일 타임 안전성)
+- ✅ 각 씬은 독립적이면서도 핵심 인프라 공유
+- ✅ 새로운 씬 추가 시 child scope만 생성하면 됨
 
 ### 1.4 State Management Pattern
 
@@ -915,11 +1039,7 @@ public class GameManager : MonoBehaviour, IGameManager
             networkManager.OnDisconnected += OnNetworkLost;
         }
 
-        // ARManager 이벤트 구독
-        if (arManager != null)
-        {
-            arManager.OnARInitialized += HandleARInitialized;
-        }
+        // Note: ARManager는 ARGameLifetimeScope에만 존재 (scene-specific)
     }
 
     // 중요: 항상 OnDestroy에서 구독 해제 (메모리 누수 방지)
@@ -942,10 +1062,7 @@ public class GameManager : MonoBehaviour, IGameManager
             networkManager.OnDisconnected -= OnNetworkLost;
         }
 
-        if (arManager != null)
-        {
-            arManager.OnARInitialized -= HandleARInitialized;
-        }
+        // Note: ARManager는 ARGameLifetimeScope에서 관리 (child scope)
     }
 
     // 이벤트 핸들러 (activity tracking)
@@ -3365,12 +3482,23 @@ Addressables로 동적 콘텐츠 로딩을 구현하여 앱 크기를 최소화�
 
 ---
 
-_Version: 2.3_
+_Version: 2.4_
 _Last Updated: 2025-10-06_
 _Unity Version: Unity 6.2 (6000.2.0f1) - 2025 LTS_
 _AR Foundation: 6.0+ (XROrigin, New Input System)_
 _Dependencies: VContainer (DI framework), Online Maps v4.2.1_
 _Target Platforms: iOS 14+, Android 10+_
+
+**주요 변경사항 (v2.3 → v2.4):**
+
+- ✅ **Parent-Child LifetimeScope Architecture** - 산업 표준 VContainer 패턴 적용
+- ✅ **CoreLifetimeScope (Parent)** - Persistent managers 등록 (GameManager, NetworkManager, LocationManager)
+- ✅ **MapLifetimeScope (Child)** - Map scene-specific 컴포넌트 등록 (MapController, GeofencingService)
+- ✅ **ARGameLifetimeScope (Child)** - ARGame scene-specific 컴포넌트 등록 (ARManager, VeinExplorationController)
+- ✅ **Scene Inheritance** - Child scopes가 parent scope 의존성 자동 상속
+- ✅ **ARGame Navigation** - Minimap 없이 directional UI overlay (GPS 기반 bearing/distance)
+- ✅ **Type-Safe DI** - FindObjectOfType 제거, 모든 의존성 DI로 주입
+- ✅ **Long-term Stability** - 씬 추가 시 새로운 child scope만 생성하면 됨
 
 **주요 변경사항 (v2.2 → v2.3):**
 
