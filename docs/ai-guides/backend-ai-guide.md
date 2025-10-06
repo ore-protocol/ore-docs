@@ -162,7 +162,7 @@ impl LocationService {
         })
     }
 
-    // Find nearby entities (coins, players, ads)
+    // Find nearby entities (fractures, cores, players)
     pub async fn find_nearby(
         &self,
         query: NearbyQuery
@@ -189,7 +189,7 @@ impl LocationService {
         // Categorize results
         for item in items {
             match item {
-                Entity::Coin(coin) => results.coins.push(coin),
+                Entity::Core(core) => results.cores.push(core),
                 Entity::Player(player) => results.players.push(player),
                 Entity::Ad(ad) => results.ads.push(ad),
             }
@@ -263,11 +263,11 @@ pub struct GameService {
 }
 
 impl GameService {
-    // Collect coin with ACID guarantees
-    pub async fn collect_coin(
+    // Mine Core with ACID guarantees
+    pub async fn mine_core(
         &self,
-        cmd: CollectCoinCommand
-    ) -> Result<CollectCoinResult, GameError> {
+        cmd: MineCoreCommand
+    ) -> Result<MineCoreResult, GameError> {
         // 1. Idempotency check
         if let Some(cached) = self.transaction_log.get(&cmd.request_id) {
             return Ok(cached.clone());
@@ -281,10 +281,10 @@ impl GameService {
             .entry(cmd.player_id)
             .or_insert_with(|| PlayerState::default());
 
-        // 4. Validate collection
-        let validation = self.validate_coin_collection(
+        // 4. Validate mining
+        let validation = self.validate_core_mining(
             &player,
-            &cmd.coin_id,
+            &cmd.core_id,
             &cmd.location
         ).await?;
 
@@ -295,13 +295,13 @@ impl GameService {
         // 5. Apply game rules
         let rewards = self.rules_engine.calculate_rewards(
             &player,
-            &cmd.coin_id,
+            &cmd.core_id,
             player.pickaxe_tier
         )?;
 
         // 6. Update player state (atomic)
         player.update(|state| {
-            state.coins += rewards.coins;
+            state.cores += rewards.cores;
             state.experience += rewards.exp;
             state.level = calculate_level(state.experience);
             state.last_collection = Utc::now();
@@ -310,13 +310,13 @@ impl GameService {
         // 7. Persist to database
         sqlx::query!(
             r#"
-            INSERT INTO coin_collections
-            (id, player_id, coin_id, rewards, collected_at)
+            INSERT INTO core_mining_records
+            (id, player_id, core_id, rewards, mined_at)
             VALUES ($1, $2, $3, $4, $5)
             "#,
             Uuid::new_v4(),
             cmd.player_id,
-            cmd.coin_id,
+            cmd.core_id,
             serde_json::to_value(&rewards)?,
             Utc::now()
         )
@@ -327,15 +327,15 @@ impl GameService {
         tx.commit().await?;
 
         // 9. Publish event
-        self.publish_event(CoinCollectedEvent {
+        self.publish_event(CoreMinedEvent {
             player_id: cmd.player_id,
-            coin_id: cmd.coin_id,
+            core_id: cmd.core_id,
             rewards: rewards.clone(),
             timestamp: Utc::now(),
         }).await?;
 
         // 10. Cache result
-        let result = CollectCoinResult {
+        let result = MineCoreResult {
             success: true,
             rewards,
             new_level: player.level,
@@ -779,7 +779,7 @@ type AdPlacement struct {
     ID          uuid.UUID `gorm:"type:uuid;primary_key"`
     CampaignID  uuid.UUID `gorm:"type:uuid;index"`
     LocationID  uuid.UUID `gorm:"type:uuid;index"`
-    CoinType    string
+    CoreType    string
     Reward      decimal.Decimal
     MaxViews    int
     CurrentViews int
@@ -891,7 +891,7 @@ func (s *AdService) GetAdsForLocation(c *fiber.Ctx) error {
             if campaign.Budget.Sub(campaign.SpentAmount).GreaterThan(decimal.Zero) {
                 ad := AdResponse{
                     CampaignID: campaign.ID,
-                    CoinType:   s.selectCoinType(campaign),
+                    CoreType:   s.selectCoreType(campaign),
                     Reward:     s.calculateReward(campaign),
                 }
                 eligibleAds = append(eligibleAds, ad)
@@ -1002,7 +1002,7 @@ type GameEvent struct {
 type UserMetrics struct {
     Time            time.Time `gorm:"type:timestamptz;index"`
     UserID          uuid.UUID `gorm:"type:uuid;index"`
-    CoinsCollected  int
+    CoresMined      int
     DistanceTraveled float64
     PlayTime        int
     Level           int
@@ -1129,7 +1129,7 @@ func (s *AnalyticsService) GetUserMetrics(c *fiber.Ctx) error {
         SELECT
             time_bucket($1, time) AS time,
             user_id,
-            SUM(coins_collected) as coins_collected,
+            SUM(cores_mined) as cores_mined,
             SUM(distance_traveled) as distance_traveled,
             SUM(play_time) as play_time,
             MAX(level) as level
@@ -1231,7 +1231,7 @@ mod tests {
         let query = NearbyQuery {
             location: Location { lat: 37.5665, lng: 126.9780 },
             radius: 1000.0, // 1km
-            types: vec![EntityType::Coin, EntityType::Player],
+            types: vec![EntityType::Core, EntityType::Player],
         };
 
         let result = service.find_nearby(query).await.unwrap();
@@ -1239,7 +1239,7 @@ mod tests {
 
         // Assert performance requirement
         assert!(duration.as_millis() < 50); // < 50ms
-        assert!(!result.coins.is_empty());
+        assert!(!result.cores.is_empty());
     }
 }
 ````

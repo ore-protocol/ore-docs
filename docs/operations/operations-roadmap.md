@@ -492,4 +492,3 @@ _"Between the zeros and ones, we shape the future"_
 _Version: 1.0_
 _Last Updated: 2024-12-20_
 _Next Review: Monthly_
-

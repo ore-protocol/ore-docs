@@ -149,7 +149,8 @@ jobs:
           - [API Documentation Strategy](Api-Documentation-Strategy)
           
           ## 🎮 Game Design
-          - [Gameplay Spec](Gameplay-Spec)
+          - [Gameplay Spec](Game-Play-Spec)
+          - [Player Journey Map](Player-Journey-Map)
           - [Game Worldview](Game-Worldview)
           - [UX Guide](Ux-Guide)
           

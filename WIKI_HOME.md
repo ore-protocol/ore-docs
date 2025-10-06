@@ -59,6 +59,7 @@ _"0과 1 사이에 무한한 가능성이 존재합니다."_
 ### 🎮 Game Design
 
 - [Gameplay Specification](Game-Play-Spec) - 핵심 게임 메커니즘
+- [Player Journey Map](Player-Journey-Map) - 플레이어 경험 설계
 - [Game Worldview](Game-Worldview) - Reality Layer 스토리
 - [UX Design Guide](UX-Guide) - 사용자 경험 철학
 
@@ -90,4 +91,4 @@ _"0과 1 사이에 무한한 가능성이 존재합니다."_
 _"May your cracks be deep!"_  
 _"당신의 균열이 깊기를!"_ ⛏️
 
-**Last Updated**: 2025년 9월
+**Last Updated**: 2025년 10월

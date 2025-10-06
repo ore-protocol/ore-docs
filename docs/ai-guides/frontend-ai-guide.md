@@ -1790,10 +1790,10 @@ Create Unity LocationManager for MVP:
 
 ## Week 5-8: AR Implementation
 
-Implement AR coin collection:
+Implement AR Core mining:
 
 - AR Foundation 6.0+
-- Max 100 coins visible
+- Max 100 Cores visible
 - 10m interaction radius
 - Object pooling required
 - 30 FPS minimum

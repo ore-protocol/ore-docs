@@ -1144,7 +1144,7 @@ func getEnv(key, defaultValue string) string {
 
 태그:
   - 도메인별로 그룹화
-  - 동사 대신 명사 사용 (예: "location", "auth", "coins")
+  - 동사 대신 명사 사용 (예: "location", "auth", "fractures", "veins", "cores")
   - 각 태그에 description 필수
 
 보안:
@@ -1159,9 +1159,9 @@ func getEnv(key, defaultValue string) string {
   - 버전은 서버 URL에 포함: https://api.ore.game/v1
   - 경로는 버전 없이 리소스만: /location/nearby, /auth/login
   - RESTful 패턴 준수
-  - 복수형 명사 사용: /users, /coins, /quests
-  - 계층 구조: /users/{id}/inventory/items
-  - 동작: POST /coins/{id}/collect (동사는 마지막에만)
+  - 복수형 명사 사용: /users, /fractures, /veins, /cores, /quests
+  - 계층 구조: /users/{id}/inventory/items, /fractures/{id}/veins
+  - 동작: POST /cores/{id}/mine (동사는 마지막에만)
 
   OpenAPI 구성:
     servers:
@@ -1171,17 +1171,19 @@ func getEnv(key, defaultValue string) string {
       /location/update:        # Full URL: https://api.ore.game/v1/location/update
 
   실제 엔드포인트 예시:
-    GET    https://api.ore.game/v1/location/nearby          # 근처 위치 조회
-    POST   https://api.ore.game/v1/location/update          # 위치 업데이트
-    GET    https://api.ore.game/v1/game/coins/nearby        # 근처 코인 조회
-    POST   https://api.ore.game/v1/game/coins/{id}/collect  # 코인 수집
-    GET    https://api.ore.game/v1/users/me                 # 내 프로필
+    GET    https://api.ore.game/v1/location/nearby-fractures  # 근처 Fracture 조회
+    POST   https://api.ore.game/v1/location/update            # 위치 업데이트
+    GET    https://api.ore.game/v1/fractures                  # Fracture 목록
+    POST   https://api.ore.game/v1/fractures/{id}/enter       # Fracture 진입
+    GET    https://api.ore.game/v1/veins/search               # Vein 탐색
+    POST   https://api.ore.game/v1/cores/{id}/mine            # Core 채굴
+    GET    https://api.ore.game/v1/users/me                   # 내 프로필
 
 파라미터 이름:
-  - snake_case 사용: user_id, genesis_number
+  - snake_case 사용: user_id, genesis_number, fracture_id, vein_id, core_id
   - Boolean: is_*, has_*, can_* (예: is_genesis, has_premium)
-  - 시간: *_at (예: created_at, updated_at)
-  - 카운트: *_count (예: coin_count, view_count)
+  - 시간: *_at (예: created_at, discovered_at, collected_at)
+  - 카운트: *_count (예: core_count, fracture_count, view_count)
 
 Response 필드:
   - 성공: data, items, result
@@ -1281,11 +1283,15 @@ Examples:
   LOCATION_SPOOFING_DETECTED: "GPS spoofing detected"
 
 게임 서비스 에러 (Game Service):
-  GAME_COIN_NOT_FOUND: "Coin not found or already collected"
-  GAME_OUT_OF_RANGE: "Coin collection out of range (max 10m)"
+  GAME_FRACTURE_NOT_FOUND: "Fracture not found or depleted"
+  GAME_FRACTURE_BOUNDARY: "Outside Fracture boundary (150m)"
+  GAME_VEIN_NOT_FOUND: "Vein not discovered yet"
+  GAME_CORE_NOT_FOUND: "Core not found or already mined"
+  GAME_OUT_OF_RANGE: "Core mining out of range (max 10m)"
   GAME_INSUFFICIENT_ENERGY: "Insufficient energy"
   GAME_INVENTORY_FULL: "Inventory full"
-  GAME_COOLDOWN_ACTIVE: "Action on cooldown"
+  GAME_COOLDOWN_ACTIVE: "Fracture entry cooldown (5s)"
+  GAME_SCENE_TRANSITION_BLOCKED: "Scene transition already in progress"
 
 광고 서비스 에러 (Ad Service):
   AD_CAMPAIGN_NOT_FOUND: "Campaign not found"
@@ -1402,12 +1408,16 @@ Rate Limiting:
   Regular Users:
     Global: 60 requests/min
     Location Update: 2 requests/min
-    Coin Collection: 10 requests/min
+    Fracture Entry: 12 requests/min (5s cooldown)
+    Core Mining: 10 requests/min
+    Vein Discovery: 20 requests/min
 
   Genesis 1000 Members:
     Global: 120 requests/min (2x)
     Location Update: 4 requests/min (2x)
-    Coin Collection: 20 requests/min (2x)
+    Fracture Entry: 24 requests/min (5s cooldown)
+    Core Mining: 20 requests/min (2x)
+    Vein Discovery: 40 requests/min (2x)
 
 Response Headers:
   X-RateLimit-Limit: 60 # 시간창 내 최대 요청 수
@@ -1940,10 +1950,20 @@ Webhook Callbacks:
   # utoipa에서 callback 문서화
   #[utoipa::path(
   callbacks(
-  ("coinCollected" = {
+  ("coreMined" = {
   "{$request.body.callback_url}" = {
   post(
-  request_body = CoinCollectedEvent,
+  request_body = CoreMinedEvent,
+  responses(
+  (status = 200, description = "Webhook received")
+  )
+  )
+  }
+  }),
+  ("fractureEntered" = {
+  "{$request.body.callback_url}" = {
+  post(
+  request_body = FractureEnteredEvent,
   responses(
   (status = 200, description = "Webhook received")
   )
@@ -1955,14 +1975,39 @@ Webhook Callbacks:
 
 Kafka Events:
   # 별도 섹션에 이벤트 스키마 문서화
-  - Topic: events.coin.collected
+  - Topic: events.core.mined
   - Schema:
       {
         "event_id": "uuid",
         "player_id": "uuid",
-        "coin_id": "string",
+        "fracture_id": "uuid",
+        "vein_id": "uuid",
+        "core_id": "uuid",
+        "grade": "string",
         "value": "number",
+        "mining_duration_ms": "number",
         "location": { "latitude": "number", "longitude": "number" },
+        "timestamp": "iso8601",
+      }
+
+  - Topic: events.fracture.entered
+  - Schema: {
+        "event_id": "uuid",
+        "player_id": "uuid",
+        "fracture_id": "uuid",
+        "entry_method": "string", # "geofencing" | "manual"
+        "location": { "latitude": "number", "longitude": "number" },
+        "timestamp": "iso8601",
+      }
+
+  - Topic: events.vein.discovered
+  - Schema:
+      {
+        "event_id": "uuid",
+        "player_id": "uuid",
+        "fracture_id": "uuid",
+        "vein_id": "uuid",
+        "discovery_distance": "number",
         "timestamp": "iso8601",
       }
 ```

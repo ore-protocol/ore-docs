@@ -297,4 +297,3 @@ Project ORE: 재미 ✓ + 수익화 ✓ + 지속가능성 ✓ + 투명성 ✓
 **"Open Reality Engine - Where Reality Becomes Valuable"**
 
 _현실을 게임으로, 광고를 투명하게, 모두에게 가치를._
-

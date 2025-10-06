@@ -671,4 +671,3 @@ Token Economy (2027):
 **"Open Reality Engine - Where Reality Becomes Valuable"**
 
 현실을 게임으로, 광고를 투명하게, 모두에게 가치를.
-

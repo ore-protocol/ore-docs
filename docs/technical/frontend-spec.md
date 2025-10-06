@@ -1,4 +1,4 @@
-# Project ORE - Frontend System Specification v2.1
+# Project ORE - Frontend System Specification v2.3
 
 _Unity AR 클라이언트 아키텍처 및 AI-Native 구현 가이드_
 
@@ -81,41 +81,450 @@ Unity의 전통적인 MonoBehaviour 아키텍처의 강결합 문제를 해결�
 - **Application**: 게임 로직의 클라이언트 측 표현 (서버 데이터 시각화)
 - **Core**: 기반 시스템 (상태 관리, 네트워킹, 에셋 로딩)
 
-### 1.2 Scene Management & Flow
+### 1.2 Scene Management & Flow (Dual-Mode Architecture)
 
 **설계 근거:**
-씬을 Persistent와 Loadable로 분리하여 매니저들이 씬 전환 시에도 유지되도록 합니다. 이는 네트워크 연결이 끊어지지 않고 게임 상태가 보존됨을 보장합니다.
+Fracture/Vein/Core 게임 메커니즘을 지원하기 위해 **Map.unity**(전략적 탐색)와 **ARGame.unity**(수집 게임플레이)로 분리된 dual-scene 아키텍처를 채택합니다. Persistent Managers는 DontDestroyOnLoad로 씬 전환 시에도 유지되며, geofencing으로 자동 씬 전환이 트리거됩니다.
+
+**핵심 원칙:**
+
+- Map.unity = 주요 씬 (플레이어가 대부분의 시간을 보냄)
+- ARGame.unity = 수집 씬 (Fracture 진입 시 additive 로드)
+- Geofencing = 150m 경계 기반 자동 전환
+- SceneTransitionData = 씬 간 데이터 전달
 
 ```yaml
 Scene Structure:
-  Persistent Managers (DontDestroyOnLoad):
-    - GameManager # 게임 상태 오케스트레이션
-    - NetworkManager # 네트워크 연결 유지
-    - LocationManager # GPS 추적
-    - ARManager # AR Foundation 통합
-    - CoreLifetimeScope # VContainer DI 루트
 
-  Game States (씬 전환 없이 상태 관리):
-    - Initializing # GameManager 시작 상태
-    - Login # 인증 (JWT 토큰)
-    - MainMenu # 메인 메뉴
-    - ARGame # AR 게임플레이
-    - Loading # 씬 전환 중
-    - Paused # 일시정지
-    - Error # 오류 상태
+  # 1. Persistent Scene (DontDestroyOnLoad)
+  Persistent:
+    Object: __PersistentManagers
+    Components:
+      - GameManager # 게임 상태 오케스트레이션
+      - NetworkManager # WebSocket + REST API
+      - LocationManager # GPS tracking + geofencing
+      - ARManager # AR Foundation 통합
+      - CoreLifetimeScope # VContainer DI 루트
+      - AudioManager # 배경음/효과음
+      - AnalyticsManager # 이벤트 추적
 
-State Flow: Initializing → Login → MainMenu ↔ ARGame
-  (모든 상태에서 → Paused/Error 가능)
+    Lifetime: 앱 시작부터 종료까지 유지
+    Purpose: 씬 전환에도 상태/연결 보존
+
+  # 2. Map.unity (Primary Scene)
+  Map.unity:
+    Description: 전략적 네비게이션 씬 (Pokémon GO 메인 화면과 유사)
+    UI Components:
+      - OnlineMapsComponent # 전체 화면 지도
+      - PlayerMarker # 실시간 GPS 위치
+      - FractureMarkers # 100m 반경 내 Fracture 표시
+      - FractureInfoCard # 선택된 Fracture 정보 (거리, 등급, 예상 보상)
+      - BottomNavigation # [Map][Inventory][Quests][Profile]
+      - TopStatusBar # GPS/네트워크/배터리 상태
+
+    Services:
+      - MapController # Online Maps v4 통합
+      - GeofencingService # Fracture 경계 감지
+      - FractureVisualizer # 균열 이펙트 렌더링
+
+    Loaded When:
+      - 앱 시작 (로그인 후)
+      - ARGame.unity 종료 후
+
+    Transitions From:
+      - Login (초기 진입)
+      - ARGame.unity (채굴 완료 또는 뒤로가기)
+
+    Geofencing Trigger:
+      Condition: 플레이어가 Fracture 150m 경계 진입
+      Action: ARGame.unity additive 로드 + Digital Crack 애니메이션
+      Data: SceneTransitionData(fractureId, veinLocation, coreMetadata)
+
+  # 3. ARGame.unity (Collection Scene)
+  ARGame.unity:
+    Description: AR 수집 게임플레이 씬 (경량화, AR만 집중)
+    UI Components:
+      - ARCameraBackground # AR Foundation 카메라 뷰
+      - DistanceHint # "따뜻해요/뜨거워요" 거리 피드백
+      - DirectionalArrow # Vein 방향 가이드
+      - CoreARRenderer # 발견된 Core의 3D AR 렌더링
+      - MiningMinigame # 등급별 채굴 미니게임 UI
+      - ExitWarning # Fracture 경계 이탈 경고 (135m)
+      - BackButton # 긴급 탈출 (Map으로 복귀)
+
+    Services:
+      - ARContentManager # AR 오브젝트 스폰/LOD
+      - VeinExplorationController # 거리 기반 힌트 시스템
+      - MiningController # 채굴 미니게임 로직
+      - GeofencingMonitor # 경계 이탈 감지
+
+    Loaded When:
+      - Geofencing trigger (Fracture 진입)
+      - Manual entry (Map에서 "진입" 버튼)
+
+    Load Mode: LoadSceneMode.Additive
+      Reason:
+        - Map.unity는 배경에 유지 (메모리 효율)
+        - Persistent Managers 재초기화 방지
+        - 빠른 복귀 (unload만 하면 됨)
+
+    Transitions To:
+      - Map.unity (채굴 완료, 뒤로가기, 강제 퇴출)
+
+    Exit Triggers:
+      - 채굴 성공 완료
+      - 뒤로가기 버튼
+      - Fracture 경계 이탈 (150m + 10s 유예)
+      - 네트워크 연결 끊김
+
+  # 4. Scene Transition Flow
+  Scene Flow:
+    Boot → Login → Map.unity (primary)
+      ↓
+      Geofencing 트리거 (150m 경계)
+      ↓
+    Map.unity + ARGame.unity (additive)
+      ↓
+      채굴 완료 / 이탈
+      ↓
+    Map.unity (ARGame.unity unload)
+
+  Transition States:
+    - Idle: Map.unity만 활성
+    - Entering: Map → ARGame 전환 중 (1.618s Digital Crack 애니메이션)
+    - Active: ARGame.unity 활성 (Map은 비활성화되지만 메모리에 유지)
+    - Exiting: ARGame → Map 전환 중 (3.14s 보상 애니메이션 + Reality Crack)
+    - Cooldown: 전환 쿨다운 (5초, 의도치 않은 재진입 방지)
 
 전환 규칙:
-  - Initializing → MainMenu: 자동 (서비스 초기화 완료 시)
-  - Login → MainMenu: 인증 성공 시
-  - MainMenu ↔ ARGame: 사용자 선택
-  - 네트워크 끊김 → Paused: 자동 (재연결 시도)
-  - 치명적 오류 → Error: 자동 (재시작 필요)
+  Map → ARGame:
+    - Trigger: Geofencing (150m 경계 진입) OR 수동 "진입" 버튼
+    - Validation:
+      * GPS 정확도 < 20m
+      * 네트워크 연결 활성
+      * AR 기기 지원 확인
+    - Animation: Digital Crack (1.618초 - 황금비)
+    - Loading: ARGame.unity additive 로드
+    - Camera: Map → AR 카메라 전환
+    - Audio: 전환 사운드 + 배경음 크로스페이드
 
-주의: Unity 6.2에서는 씬 전환 대신 GameState를 변경하여 UI만 전환합니다.
-  모든 매니저는 DontDestroyOnLoad로 유지되어 상태가 보존됩니다.
+  ARGame → Map:
+    - Trigger: 채굴 완료, 뒤로가기, 경계 이탈, 네트워크 끊김
+    - Animation: Reward display (3.14초 - π) + Reality Crack reverse
+    - Unloading: ARGame.unity Scene.UnloadSceneAsync()
+    - Camera: AR → Map 카메라 복원
+    - Data: 보상 데이터 Map UI에 전달
+
+  네트워크 끊김 → Paused:
+    - 자동 (재연결 시도)
+    - ARGame 활성 시 즉시 Map으로 복귀
+
+  치명적 오류 → Error:
+    - 자동 (재시작 필요)
+    - 현재 씬 정보 저장 (복구용)
+
+주의사항:
+  - Map.unity와 ARGame.unity는 **실제 씬 파일**입니다 (GameState enum이 아님)
+  - Additive loading으로 Persistent Managers 유지
+  - SceneTransitionData로 씬 간 데이터 전달 (static 변수 사용 금지)
+  - Geofencing은 LocationManager에서 처리, GameManager가 씬 전환 트리거
+```
+
+#### SceneTransitionData Class
+
+씬 간 데이터 전달을 위한 구조체 (static 변수 사용 방지):
+
+```csharp
+namespace ORE.Core.SceneManagement
+{
+    /// <summary>
+    /// Data container for scene transitions between Map and ARGame.
+    /// Passed via GameManager to avoid static variables and ensure clean state management.
+    /// </summary>
+    [System.Serializable]
+    public class SceneTransitionData
+    {
+        // Fracture 정보
+        public string fractureId;
+        public Vector2d fractureCenter;      // GPS 좌표
+        public float fractureRadius;         // 150m (MVP)
+        public FractureGrade fractureGrade;  // Common/Rare/Epic/Legendary
+        public GeoJsonPolygon fractureBoundary; // 정확한 경계 (Post-MVP)
+
+        // Vein 정보 (서버에서 제공)
+        public string veinId;
+        public Vector2d veinLocation;        // 정확한 GPS 좌표
+        public float veinRadius;             // 발견 반경: 10m (일반) / 3m (Genesis)
+
+        // Core 정보
+        public CoreMetadata coreData;
+        public string coreType;              // "ore", "artifact", "advertisement"
+        public int estimatedValue;           // 예상 보상 (표시용)
+
+        // Transition 메타데이터
+        public float transitionTimestamp;    // 진입 시간 (Time.time)
+        public bool isManualEntry;           // true: 수동 진입, false: Geofencing 자동
+        public Vector2d playerEntryPosition; // 진입 시 플레이어 위치
+
+        // Genesis 특전
+        public bool isGenesisPlayer;
+        public float rewardMultiplier;       // 2.0 for Genesis, 1.0 for regular
+
+        /// <summary>
+        /// Create transition data from server Fracture response
+        /// </summary>
+        public static SceneTransitionData FromFractureResponse(FractureEnterResponse response)
+        {
+            return new SceneTransitionData
+            {
+                fractureId = response.FractureId,
+                fractureCenter = new Vector2d(response.Latitude, response.Longitude),
+                fractureRadius = response.Radius,
+                fractureGrade = response.Grade,
+                veinId = response.VeinId,
+                veinLocation = new Vector2d(response.VeinLatitude, response.VeinLongitude),
+                veinRadius = response.VeinRadius,
+                coreData = response.CoreMetadata,
+                transitionTimestamp = Time.time,
+                isManualEntry = response.IsManualEntry,
+                playerEntryPosition = Services.Location.CurrentLocation,
+                isGenesisPlayer = GameState.LocalPlayer.IsGenesis,
+                rewardMultiplier = GameState.LocalPlayer.IsGenesis ? 2.0f : 1.0f
+            };
+        }
+    }
+}
+```
+
+#### Scene Transition Implementation
+
+GameManager에서 씬 전환 관리:
+
+```csharp
+namespace ORE.Core
+{
+    using UnityEngine.SceneManagement;
+    using ORE.Core.SceneManagement;
+
+    public class GameManager : MonoBehaviour, IGameManager
+    {
+        [Header("Scene References")]
+        private const string MAP_SCENE = "Map";
+        private const string AR_GAME_SCENE = "ARGame";
+
+        [Header("Transition Settings")]
+        [SerializeField] private float digitalCrackDuration = 1.618f; // Golden ratio
+        [SerializeField] private float rewardAnimationDuration = 3.14f; // π
+        [SerializeField] private float transitionCooldown = 5.0f;
+
+        // Current transition data
+        private SceneTransitionData currentTransitionData;
+        private float lastTransitionTime;
+
+        // VContainer DI
+        [Inject] private ILocationManager locationManager;
+        [Inject] private INetworkManager networkManager;
+        [Inject] private IARManager arManager;
+
+        private void Start()
+        {
+            // Subscribe to geofencing events
+            locationManager.OnFractureEntered += HandleFractureEntered;
+            locationManager.OnFractureExited += HandleFractureExited;
+        }
+
+        /// <summary>
+        /// Geofencing callback - automatically triggered by LocationManager
+        /// </summary>
+        private async void HandleFractureEntered(string fractureId)
+        {
+            GameLogger.Log($"Geofencing triggered: Entering Fracture {fractureId}");
+
+            // Validation
+            if (!CanEnterFracture())
+            {
+                GameLogger.LogWarning("Cannot enter Fracture - validation failed");
+                return;
+            }
+
+            // Cooldown check (prevent rapid transitions)
+            if (Time.time - lastTransitionTime < transitionCooldown)
+            {
+                GameLogger.LogWarning("Transition on cooldown");
+                return;
+            }
+
+            // Request Fracture data from server
+            var response = await Services.Network.RequestFractureEntry(fractureId);
+            if (!response.Success)
+            {
+                UIManager.ShowError($"진입 실패: {response.ErrorMessage}");
+                return;
+            }
+
+            // Prepare transition data
+            currentTransitionData = SceneTransitionData.FromFractureResponse(response);
+
+            // Start transition
+            await TransitionToARGame(currentTransitionData);
+        }
+
+        /// <summary>
+        /// Transition from Map.unity to ARGame.unity
+        /// </summary>
+        private async Task TransitionToARGame(SceneTransitionData data)
+        {
+            GameLogger.Log("Starting Map → ARGame transition");
+            lastTransitionTime = Time.time;
+
+            // 1. Play Digital Crack animation
+            await UIManager.PlayDigitalCrackAnimation(digitalCrackDuration);
+
+            // 2. Load ARGame scene additively
+            var loadOperation = SceneManager.LoadSceneAsync(AR_GAME_SCENE, LoadSceneMode.Additive);
+            loadOperation.allowSceneActivation = false;
+
+            // Wait for scene to load (90%)
+            while (loadOperation.progress < 0.9f)
+            {
+                await Task.Yield();
+            }
+
+            // 3. Activate AR camera
+            arManager.EnableARCamera();
+
+            // 4. Activate scene
+            loadOperation.allowSceneActivation = true;
+            await loadOperation;
+
+            // 5. Pass data to ARGame scene
+            var arGameController = FindObjectOfType<ARGameController>();
+            arGameController.Initialize(currentTransitionData);
+
+            // 6. Deactivate Map scene (keep in memory)
+            var mapScene = SceneManager.GetSceneByName(MAP_SCENE);
+            foreach (var rootObject in mapScene.GetRootGameObjects())
+            {
+                rootObject.SetActive(false);
+            }
+
+            // 7. Switch camera
+            SwitchToARCamera();
+
+            // 8. Haptic feedback
+            HapticFeedback.Medium();
+
+            GameLogger.Log("ARGame scene loaded and activated");
+        }
+
+        /// <summary>
+        /// Transition from ARGame.unity back to Map.unity
+        /// </summary>
+        public async Task TransitionToMap(MiningResult result)
+        {
+            GameLogger.Log("Starting ARGame → Map transition");
+
+            // 1. Show reward animation (if successful)
+            if (result.Success)
+            {
+                await UIManager.PlayRewardAnimation(result.Rewards, rewardAnimationDuration);
+            }
+
+            // 2. Play Reality Crack reverse animation
+            await UIManager.PlayRealityCrackReverseAnimation(digitalCrackDuration);
+
+            // 3. Disable AR camera
+            arManager.DisableARCamera();
+
+            // 4. Unload ARGame scene
+            var unloadOperation = SceneManager.UnloadSceneAsync(AR_GAME_SCENE);
+            await unloadOperation;
+
+            // 5. Reactivate Map scene
+            var mapScene = SceneManager.GetSceneByName(MAP_SCENE);
+            foreach (var rootObject in mapScene.GetRootGameObjects())
+            {
+                rootObject.SetActive(true);
+            }
+
+            // 6. Switch back to Map camera
+            SwitchToMapCamera();
+
+            // 7. Update Map UI with result
+            var mapController = FindObjectOfType<MapController>();
+            mapController.OnReturnFromARGame(result);
+
+            // 8. Haptic feedback
+            HapticFeedback.Light();
+
+            // 9. Sync with server
+            await Services.Network.SyncPlayerState();
+
+            GameLogger.Log("Returned to Map scene");
+        }
+
+        /// <summary>
+        /// Validation before entering Fracture
+        /// </summary>
+        private bool CanEnterFracture()
+        {
+            // Network check
+            if (!networkManager.IsConnected)
+            {
+                UIManager.ShowError("네트워크 연결이 필요합니다");
+                return false;
+            }
+
+            // GPS accuracy check
+            if (locationManager.CurrentAccuracy > 20f)
+            {
+                UIManager.ShowError("GPS 정확도가 낮습니다. 야외로 이동하세요.");
+                return false;
+            }
+
+            // AR support check
+            if (!arManager.IsARSupported())
+            {
+                UIManager.ShowError("이 기기는 AR을 지원하지 않습니다");
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Handle forced exit (boundary exit, network loss)
+        /// </summary>
+        private void HandleFractureExited(string fractureId)
+        {
+            GameLogger.LogWarning($"Fracture boundary exited: {fractureId}");
+
+            // If in ARGame, force return to Map
+            if (SceneManager.GetSceneByName(AR_GAME_SCENE).isLoaded)
+            {
+                UIManager.ShowWarning("Fracture 경계를 벗어났습니다");
+
+                var failedResult = new MiningResult
+                {
+                    Success = false,
+                    FailReason = "BOUNDARY_EXIT"
+                };
+
+                _ = TransitionToMap(failedResult);
+            }
+        }
+
+        private void OnDestroy()
+        {
+            // Unsubscribe from events
+            if (locationManager != null)
+            {
+                locationManager.OnFractureEntered -= HandleFractureEntered;
+                locationManager.OnFractureExited -= HandleFractureExited;
+            }
+        }
+    }
+}
 ```
 
 ### 1.3 Component Architecture (Updated: VContainer DI)
@@ -328,7 +737,7 @@ public class ClientGameState
 {
     // 서버에서 받은 데이터만 저장 (읽기 전용)
     public PlayerData LocalPlayer { get; private set; }
-    public List<CoinData> NearbyCoins { get; private set; }
+    public List<CoreData> NearbyCores { get; private set; }
     public List<PlayerData> NearbyPlayers { get; private set; }
 
     // 상태 버전 관리 (서버와 동기화 검증)
@@ -346,7 +755,7 @@ public class ClientGameState
 
         // 검증 없이 서버 데이터 적용 (서버가 권위)
         LocalPlayer = update.PlayerData;
-        NearbyCoins = update.Coins;
+        NearbyCores = update.Cores;
         NearbyPlayers = update.Players;
         StateVersion = update.Version;
 
@@ -614,11 +1023,11 @@ event Action<bool> OnConnectivityChanged;  // true가 연결? 끊김?
 
 ```csharp
 // 개발 빌드 (UNITY_EDITOR 또는 DEVELOPMENT_BUILD 정의됨)
-GameLogger.Log("Player collected coin");
-// → 출력: [ORE] Player collected coin
+GameLogger.Log("Player mined Core");
+// → 출력: [ORE] Player mined Core
 
 // 릴리스 빌드 (프로덕션)
-GameLogger.Log("Player collected coin");
+GameLogger.Log("Player mined Core");
 // → 컴파일 타임에 완전히 제거됨, CPU 사이클 0
 ```
 
@@ -1927,10 +2336,10 @@ public class LocationManager : MonoBehaviour, ILocationManager
 }
 ```
 
-### 3.2 Coin Collection Mechanics
+### 3.2 Core Mining Mechanics
 
 **설계 근거:**
-코인 수집은 완전히 서버 권위적입니다. 클라이언트는 시각적 표현만 담당하고, 실제 수집 여부는 서버가 결정합니다. Optimistic UI로 즉각적인 피드백을 제공하되, 서버 거부 시 롤백합니다.
+Core 채굴은 완전히 서버 권위적입니다. 클라이언트는 시각적 표현만 담당하고, 실제 채굴 여부는 서버가 결정합니다. Optimistic UI로 즉각적인 피드백을 제공하되, 서버 거부 시 롤백합니다.
 
 **수집 거리 설정:**
 
@@ -1939,7 +2348,7 @@ public class LocationManager : MonoBehaviour, ILocationManager
 - 최대 표시: 100m (성능 고려)
 
 ```csharp
-public class CoinCollectionSystem : MonoBehaviour
+public class CoreMiningSystem : MonoBehaviour
 {
     [Header("Collection Settings")]
     public float collectionRange = 10f;         // 수집 가능 거리
@@ -1948,49 +2357,49 @@ public class CoinCollectionSystem : MonoBehaviour
     public float collectionCooldown = 0.5f;    // 연속 수집 방지
 
     [Header("Visual Settings")]
-    public int maxVisibleCoins = 50;           // 최대 표시 개수
-    public float coinRotationSpeed = 90f;      // 회전 속도
+    public int maxVisibleCores = 50;           // 최대 표시 개수
+    public float coreRotationSpeed = 90f;      // 회전 속도
 
-    private Dictionary<string, CoinVisual> activeCoins;
-    private Queue<CollectionRequest> pendingRequests;
-    private float lastCollectionTime;
+    private Dictionary<string, CoreVisual> activeCores;
+    private Queue<MiningRequest> pendingRequests;
+    private float lastMiningTime;
 
-    // 서버로부터 코인 데이터 수신
-    public void UpdateNearbyCoins(List<CoinData> serverCoins)
+    // 서버로부터 Core 데이터 수신
+    public void UpdateNearbyCores(List<CoreData> serverCores)
     {
         // 성능을 위해 거리순 정렬
-        serverCoins.Sort((a, b) =>
+        serverCores.Sort((a, b) =>
             Vector2d.Distance(a.Location, PlayerGPS).CompareTo(
             Vector2d.Distance(b.Location, PlayerGPS)));
 
-        // 표시 범위 밖 코인 제거
-        RemoveDistantCoins(serverCoins);
+        // 표시 범위 밖 Core 제거
+        RemoveDistantCores(serverCores);
 
         // 최대 개수 제한
-        int displayCount = Mathf.Min(serverCoins.Count, maxVisibleCoins);
+        int displayCount = Mathf.Min(serverCores.Count, maxVisibleCores);
 
         for (int i = 0; i < displayCount; i++)
         {
-            var coinData = serverCoins[i];
+            var coreData = serverCores[i];
 
-            if (activeCoins.ContainsKey(coinData.Id))
+            if (activeCores.ContainsKey(coreData.Id))
             {
-                // 기존 코인 업데이트
-                UpdateCoinVisual(coinData);
+                // 기존 Core 업데이트
+                UpdateCoreVisual(coreData);
             }
             else
             {
-                // 새 코인 생성
-                SpawnCoinVisual(coinData);
+                // 새 Core 생성
+                SpawnCoreVisual(coreData);
             }
         }
     }
 
-    void SpawnCoinVisual(CoinData data)
+    void SpawnCoreVisual(CoreData data)
     {
         // 타입별 풀에서 가져오기
-        var coinGO = CoinPool.Get(data.Type);
-        var visual = coinGO.GetComponent<CoinVisual>();
+        var coreGO = CorePool.Get(data.Type);
+        var visual = coreGO.GetComponent<CoreVisual>();
 
         // 월드 좌표 설정
         var worldPos = GPSToWorld(data.Location);
@@ -1999,7 +2408,7 @@ public class CoinCollectionSystem : MonoBehaviour
 
         // 거리별 품질 설정
         float distance = Vector3.Distance(PlayerPosition, worldPos);
-        SetCoinQuality(visual, distance);
+        SetCoreQuality(visual, distance);
 
         // AR/Map 모드 설정
         if (ARManager.IsARMode)
@@ -2012,50 +2421,50 @@ public class CoinCollectionSystem : MonoBehaviour
             visual.EnableMapMode();
         }
 
-        // 수집 가능 여부 표시
-        bool canCollect = distance <= collectionRange;
-        visual.SetCollectible(canCollect);
+        // 채굴 가능 여부 표시
+        bool canMine = distance <= collectionRange;
+        visual.SetMineable(canMine);
 
-        activeCoins[data.Id] = visual;
+        activeCores[data.Id] = visual;
 
         // 스폰 애니메이션
         visual.PlaySpawnAnimation();
     }
 
-    // 코인 수집 시도
-    public void TryCollectCoin(string coinId)
+    // Core 채굴 시도
+    public void TryMineCore(string coreId)
     {
         // 쿨다운 체크
-        if (Time.time - lastCollectionTime < collectionCooldown)
+        if (Time.time - lastMiningTime < collectionCooldown)
         {
-            Debug.Log("Collection on cooldown");
+            Debug.Log("Mining on cooldown");
             return;
         }
 
-        if (!activeCoins.ContainsKey(coinId))
+        if (!activeCores.ContainsKey(coreId))
         {
-            Debug.LogWarning($"Coin {coinId} not found");
+            Debug.LogWarning($"Core {coreId} not found");
             return;
         }
 
-        var coin = activeCoins[coinId];
+        var core = activeCores[coreId];
 
         // 클라이언트 측 거리 체크 (UX용)
-        float distance = Vector3.Distance(PlayerPosition, coin.transform.position);
+        float distance = Vector3.Distance(PlayerPosition, core.transform.position);
         if (distance > collectionRange)
         {
             ShowTooFarMessage(distance);
             return;
         }
 
-        // 서버에 수집 요청
-        var request = new CollectCoinRequest
+        // 서버에 채굴 요청
+        var request = new MineCoreRequest
         {
             RequestId = Guid.NewGuid().ToString(), // 멱등성
-            CoinId = coinId,
-            CoinType = coin.Data.Type,
+            CoreId = coreId,
+            CoreType = core.Data.Type,
             PlayerPosition = GetCurrentGPS(),
-            CoinPosition = coin.Data.Location,
+            CorePosition = core.Data.Location,
             Distance = distance,
             Timestamp = NetworkTime.time,
             PickaxeId = GameState.EquippedPickaxe?.Id
@@ -2065,68 +2474,68 @@ public class CoinCollectionSystem : MonoBehaviour
         pendingRequests.Enqueue(request);
 
         // Optimistic UI
-        coin.PlayCollectAnimation();
-        ShowCollectingUI(coin.Data.Value);
-        lastCollectionTime = Time.time;
+        core.PlayMiningAnimation();
+        ShowMiningUI(core.Data.Value);
+        lastMiningTime = Time.time;
 
         // 서버 전송
         Services.Network.SendRequest(request, (response) =>
-            OnCollectionResponse(request, response));
+            OnMiningResponse(request, response));
     }
 
-    void OnCollectionResponse(CollectCoinRequest request, CollectCoinResponse response)
+    void OnMiningResponse(MineCoreRequest request, MineCoreResponse response)
     {
         // 대기열에서 제거
-        pendingRequests = new Queue<CollectionRequest>(
+        pendingRequests = new Queue<MiningRequest>(
             pendingRequests.Where(r => r.RequestId != request.RequestId));
 
         if (response.Success)
         {
             // 성공 처리
-            HandleCollectionSuccess(request.CoinId, response);
+            HandleMiningSuccess(request.CoreId, response);
         }
         else
         {
             // 실패 처리 (롤백)
-            HandleCollectionFailure(request.CoinId, response);
+            HandleMiningFailure(request.CoreId, response);
         }
     }
 
-    void HandleCollectionSuccess(string coinId, CollectCoinResponse response)
+    void HandleMiningSuccess(string coreId, MineCoreResponse response)
     {
-        if (!activeCoins.ContainsKey(coinId)) return;
+        if (!activeCores.ContainsKey(coreId)) return;
 
-        var coin = activeCoins[coinId];
+        var core = activeCores[coreId];
 
         // 성공 이펙트
-        coin.PlaySuccessEffect();
+        core.PlaySuccessEffect();
 
         // 보상 표시
         UIManager.ShowReward(new RewardData
         {
-            Coins = response.CoinReward,
+            Cores = response.CoreReward,
             Experience = response.ExpReward,
             BonusMultiplier = response.BonusMultiplier // Genesis 2x
         });
 
         // 사운드
-        AudioManager.PlaySound("coin_collect");
+        AudioManager.PlaySound("core_mined");
 
         // 햅틱 피드백
         HapticFeedback.Success();
 
         // 제거 (풀로 반환)
-        StartCoroutine(RemoveCoinAfterEffect(coin));
+        StartCoroutine(RemoveCoreAfterEffect(core));
     }
 
-    void HandleCollectionFailure(string coinId, CollectCoinResponse response)
+    void HandleMiningFailure(string coreId, MineCoreResponse response)
     {
-        if (!activeCoins.ContainsKey(coinId)) return;
+        if (!activeCores.ContainsKey(coreId)) return;
 
-        var coin = activeCoins[coinId];
+        var core = activeCores[coreId];
 
         // 애니메이션 롤백
-        coin.CancelCollection();
+        core.CancelMining();
 
         // 에러 메시지
         switch (response.FailReason)
@@ -2135,10 +2544,10 @@ public class CoinCollectionSystem : MonoBehaviour
                 UIManager.ShowError($"너무 멀리 있습니다! ({response.ActualDistance:F1}m)");
                 break;
 
-            case "ALREADY_COLLECTED":
-                UIManager.ShowError("다른 플레이어가 먼저 수집했습니다!");
+            case "ALREADY_MINED":
+                UIManager.ShowError("다른 플레이어가 먼저 채굴했습니다!");
                 // 즉시 제거
-                RemoveCoin(coinId);
+                RemoveCore(coreId);
                 break;
 
             case "INVALID_PICKAXE":
@@ -2151,23 +2560,23 @@ public class CoinCollectionSystem : MonoBehaviour
                 break;
 
             default:
-                UIManager.ShowError("수집에 실패했습니다.");
+                UIManager.ShowError("채굴에 실패했습니다.");
                 break;
         }
     }
 
-    // Genesis 자동 수집
-    void CheckAutoCollection()
+    // Genesis 자동 채굴
+    void CheckAutoMining()
     {
         if (!GameState.LocalPlayer.IsGenesis) return;
 
-        foreach (var coin in activeCoins.Values)
+        foreach (var core in activeCores.Values)
         {
-            float distance = Vector3.Distance(PlayerPosition, coin.transform.position);
+            float distance = Vector3.Distance(PlayerPosition, core.transform.position);
 
-            if (distance <= autoCollectRange && !coin.IsPendingCollection)
+            if (distance <= autoCollectRange && !core.IsPendingMining)
             {
-                TryCollectCoin(coin.Data.Id);
+                TryMineCore(core.Data.Id);
             }
         }
     }
@@ -2956,12 +3365,22 @@ Addressables로 동적 콘텐츠 로딩을 구현하여 앱 크기를 최소화�
 
 ---
 
-_Version: 2.2_
-_Last Updated: 2025-10-01_
+_Version: 2.3_
+_Last Updated: 2025-10-06_
 _Unity Version: Unity 6.2 (6000.2.0f1) - 2025 LTS_
 _AR Foundation: 6.0+ (XROrigin, New Input System)_
-_Dependencies: VContainer (DI framework)_
+_Dependencies: VContainer (DI framework), Online Maps v4.2.1_
 _Target Platforms: iOS 14+, Android 10+_
+
+**주요 변경사항 (v2.2 → v2.3):**
+
+- ✅ **Dual-Mode Scene Architecture** - Map.unity/ARGame.unity 분리 아키텍처로 전면 개편 (Section 1.2)
+- ✅ **Fracture/Vein/Core 시스템** - Geofencing 기반 자동 씬 전환 구현
+- ✅ **SceneTransitionData Class** - 씬 간 데이터 전달 구조체 추가 (static 변수 방지)
+- ✅ **Scene Transition Implementation** - GameManager에서 Map ↔ ARGame 전환 로직 상세 명세
+- ✅ **Digital Crack Animation** - 1.618초 황금비 기반 전환 애니메이션
+- ✅ **Additive Scene Loading** - Persistent Managers 유지하며 씬 로드/언로드
+- ✅ **Geofencing Events** - LocationManager → GameManager 이벤트 기반 자동 전환
 
 **주요 변경사항 (v2.1 → v2.2):**
 

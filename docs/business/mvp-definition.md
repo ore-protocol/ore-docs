@@ -87,22 +87,58 @@ Post-MVP Phase (2026 Q1):
 #### 🎮 게임 코어 시스템 [MVP]
 
 ```yaml
+Fracture → Vein → Core 시스템:
+  Fracture (균열):
+    - 150m x 150m 영역 (MVP), 동적 크기 (Post-MVP)
+    - Map.unity에서 균열 이펙트로 표시
+    - S2 Geometry Level 15 기반 생성
+    - 등급: Common/Rare/Epic/Legendary/Advertisement
+    - 100m 반경 내 Fracture 실시간 표시
+
+  Vein (광맥):
+    - Fracture 내부의 정확한 GPS 좌표
+    - Fracture 진입 전까지 숨겨짐
+    - 발견 범위: 10m (일반) / 3m (Genesis 1000)
+    - ARGame.unity에서 거리 힌트로 탐색
+
+  Core (광석 코어):
+    - AR 카메라에 3D 모델로 렌더링 (LOD 3단계)
+    - 터치 인터랙션으로 채굴
+    - 등급별 채굴 미니게임
+    - 포인트 보상 (MVP) → 토큰 보상 (Post-MVP)
+
 위치 기반 게임플레이:
-  - GPS 실시간 추적 (5초 간격 업데이트)
-  - S2 Geometry 기반 효율적 공간 인덱싱
-  - 100m 반경 내 코인 실시간 스폰
+  - GPS 실시간 추적 (1초 간격 업데이트)
+  - Kalman Filter 기반 위치 스무딩
+  - Geofencing: 150m 경계 자동 감지
   - 거리 기반 수집 검증 (10m 이내)
+  - 안티치트: 속도/가속도/텔레포트 검증
   - 일일 이동거리 추적
 
-AR 시스템:
-  - AR Foundation 6.0+ 기반 구현
-  - 3D 코인 모델 렌더링 (LOD 3단계)
-  - 평면 인식 및 오클루전 처리
-  - 터치 인터랙션 (레이캐스팅)
-  - AR/Map 모드 즉시 전환
+Dual-Mode Architecture:
+  Map Mode (Map.unity):
+    - 전략적 네비게이션 (Pokémon GO 스타일)
+    - Online Maps v4 전체 화면 지도
+    - 100m 반경 Fracture 실시간 표시
+    - Fracture 정보 카드 (거리, 등급, 예상 보상)
+    - 하단 네비게이션 [Map][Inventory][Quests][Profile]
+
+  AR Mode (ARGame.unity):
+    - Fracture 진입 시 자동 전환 (Geofencing)
+    - AR Foundation 6.0+ 기반 구현
+    - Vein 탐색: "따뜻해요/뜨거워요" 거리 힌트
+    - Core 발견 시 3D AR 렌더링
+    - 등급별 채굴 미니게임 (탭/스와이프/타이밍)
+    - 평면 인식 및 오클루전 처리
+    - 경계 이탈 경고 (135m) + 강제 퇴출 (150m + 10s)
+
+Scene Transition:
+  - Digital Crack 애니메이션 (1.618초 황금비)
+  - Additive scene loading (Persistent Managers 유지)
+  - SceneTransitionData로 데이터 전달
+  - 쿨다운 5초 (의도치 않은 재진입 방지)
 
 게임 메커닉:
-  - 코인 수집 시스템 (일반/레어/에픽)
   - 곡괭이 3종 (나무/돌/철) - 효율 1x/1.5x/2x
   - 포인트 시스템 (MVP) → 토큰 전환 (Post-MVP)
   - 일일 퀘스트 3종
@@ -116,23 +152,32 @@ AR 시스템:
 MVP - 오프체인 광고 시스템:
   - DB 기반 광고 캠페인 관리
   - 광고주 크레딧 충전 (결제 게이트웨이)
-  - 사용자 광고 코인 수집 → 포인트 보상
+  - 광고 Fracture 생성 (Advertisement 등급)
+  - 사용자가 광고 Core 채굴 → 포인트 보상
   - 10% 플랫폼 수수료
   - 투명한 광고 집행 리포트
 
 Post-MVP - 온체인 광고 시스템:
   - 스마트 컨트랙트 기반 광고 캠페인
   - 광고주 토큰 예치 → 캠페인 생성
-  - 사용자 광고 코인 수집 → 토큰 보상
+  - 광고 Fracture 생성 (블록체인 기록)
+  - 사용자가 광고 Core 채굴 → 토큰 보상
   - 10% 플랫폼 수수료 자동 징수
   - 블록체인 기반 투명성
 
 광고주 대시보드:
   - 셀프서브 캠페인 생성
-  - 지역 타겟팅 (S2 Cell 기반)
-  - 실시간 성과 추적
+  - 지역 타겟팅 (Fracture 위치 설정)
+  - S2 Cell 기반 정밀 타겟팅
+  - 실시간 성과 추적 (Fracture 진입/Core 채굴)
   - 예산 관리 및 충전
   - 상세 분석 리포트
+
+광고 형태:
+  - 광고 Fracture: 특정 위치에 생성된 광고 영역
+  - 광고 Core: Fracture 내부의 광고 콘텐츠 (비디오/이미지/AR)
+  - 채굴 완료 시 광고 노출
+  - 인터랙티브 광고 (AR 체험형)
 
 수익화 기능:
   - 보상형 광고 (2x 부스터)
@@ -564,55 +609,101 @@ graph TB
 
 ### 3.5 시스템 플로우 다이어그램
 
-#### 코인 수집 플로우
+#### Core 채굴 플로우 (Fracture → Vein → Core)
 
 ```mermaid
 sequenceDiagram
-    participant U as Unity Client
+    participant U as Unity Client<br/>(Map.unity)
     participant GW as API Gateway
     participant LOC as Location Service
     participant GAME as Game Service
     participant BC as Blockchain Service
     participant DB as PostgreSQL
     participant RD as Redis
+    participant AR as Unity Client<br/>(ARGame.unity)
 
-    U->>GW: 위치 업데이트
+    Note over U: Map Mode - 전략적 탐색
+    U->>GW: 위치 업데이트 (1초 간격)
     GW->>LOC: GPS 데이터 전송
-    LOC->>LOC: 위치 검증
+    LOC->>LOC: 위치 검증 + 안티치트
     LOC->>RD: 위치 캐시 업데이트
     LOC->>DB: 위치 히스토리 저장
 
-    U->>GW: 주변 코인 요청
-    GW->>LOC: getNearbyCoins(location, radius)
+    U->>GW: 주변 Fracture 요청 (100m 반경)
+    GW->>LOC: getNearbyFractures(location, radius)
     LOC->>RD: 캐시 확인
     alt 캐시 미스
-        LOC->>DB: S2 Cell 쿼리
-        DB-->>LOC: 코인 목록
+        LOC->>DB: S2 Cell 쿼리 (Level 15)
+        DB-->>LOC: Fracture 목록
         LOC->>RD: 캐시 저장
     end
-    LOC-->>GW: 코인 목록
-    GW-->>U: 코인 데이터 + AR 좌표
+    LOC-->>GW: Fracture 목록 (grade, distance)
+    GW-->>U: Fracture 데이터 + 지도 마커
 
-    U->>U: AR 렌더링
-    U->>GW: 코인 수집 요청
-    GW->>GAME: collectCoin(userId, coinId)
-    GAME->>DB: 거리 검증
+    Note over U,LOC: Geofencing 트리거 (150m 경계)
+    LOC->>LOC: 경계 감지
+    LOC->>GW: Fracture 진입 이벤트
+    GW->>U: fracture.entered WebSocket
 
-    alt 광고 코인 [MVP]
+    Note over U,AR: Scene Transition (Map → AR)
+    U->>GW: Fracture 진입 요청
+    GW->>GAME: enterFracture(userId, fractureId)
+    GAME->>DB: Vein 위치 조회
+    DB-->>GAME: Vein GPS 좌표
+    GAME->>RD: 전환 데이터 캐싱
+    GAME-->>GW: SceneTransitionData
+    GW-->>U: Vein 위치 + Core 메타데이터
+
+    U->>U: Digital Crack 애니메이션 (1.618초)
+    U->>AR: ARGame.unity Additive Load
+    Note over AR: AR Mode - Vein 탐색
+
+    AR->>GW: Vein 탐색 시작
+    loop 거리 힌트
+        AR->>AR: GPS 업데이트
+        AR->>AR: 거리 계산 (Vein까지)
+        AR->>AR: UI 업데이트 ("따뜻해요/뜨거워요")
+    end
+
+    Note over AR: Vein 발견 (10m 이내)
+    AR->>GW: Vein 발견 보고
+    GW->>GAME: discoverVein(userId, veinId)
+    GAME->>DB: 발견 기록
+    GAME->>DB: Core 정보 조회
+    DB-->>GAME: Core 데이터
+    GAME-->>GW: Core AR 렌더링 데이터
+    GW-->>AR: Core 3D 모델 + 위치
+
+    AR->>AR: Core AR 렌더링
+    Note over AR: 채굴 미니게임
+    AR->>GW: Core 채굴 요청
+    GW->>GAME: mineCore(userId, coreId)
+    GAME->>DB: 거리 검증 (10m 이내)
+
+    alt 광고 Core [MVP]
         GAME->>DB: 포인트 보상 처리
         Note over GAME: MVP: 오프체인 포인트
-    else 광고 코인 [Post-MVP]
+    else 광고 Core [Post-MVP]
         GAME->>BC: 광고 보상 처리
         BC->>BC: 스마트 컨트랙트 실행
         BC-->>GAME: 토큰 전송 확인
         Note over BC: Post-MVP: 온체인 토큰
     end
 
-    GAME->>DB: 코인 수집 기록
+    GAME->>DB: Core 채굴 기록
     GAME->>DB: 포인트/토큰 업데이트
     GAME->>RD: 리더보드 업데이트
-    GAME-->>GW: 수집 성공
-    GW-->>U: 보상 + 애니메이션
+    GAME-->>GW: 채굴 성공 + 보상
+    GW-->>AR: MiningResult
+
+    Note over AR,U: Scene Transition (AR → Map)
+    AR->>AR: 보상 애니메이션 (3.14초)
+    AR->>AR: Reality Crack Reverse (1.618초)
+    AR->>U: ARGame.unity Unload
+    U->>U: Map.unity 복원
+    U->>U: 보상 UI 표시
+
+    Note over U: Map Mode 복귀
 ```
 
 #### 광고 캠페인 생성 플로우 (MVP vs Post-MVP)
@@ -659,10 +750,11 @@ sequenceDiagram
     GW-->>A: 캠페인 상세 정보
 
     Note over AD: 백그라운드 프로세스
-    AD->>AD: 광고 코인 스폰 스케줄링
+    AD->>AD: 광고 Fracture 스폰 스케줄링
     loop 캠페인 기간 동안
-        AD->>DB: 광고 코인 생성
-        AD->>LOC: 위치 기반 배포
+        AD->>DB: 광고 Fracture 생성 (Advertisement 등급)
+        AD->>DB: Vein + Core 생성 (Fracture 내부)
+        AD->>LOC: 지역 타겟팅 기반 배포
     end
 ```
 
@@ -874,17 +966,44 @@ CREATE TABLE location_history (
     recorded_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 ) PARTITION BY RANGE (recorded_at);
 
--- 코인 테이블
-CREATE TABLE coins (
+-- Fracture 테이블 (균열)
+CREATE TABLE fractures (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    type VARCHAR(20) NOT NULL, -- 'normal', 'rare', 'epic', 'ad'
-    value INTEGER NOT NULL,
-    location GEOGRAPHY(POINT, 4326) NOT NULL,
-    s2_cell_id BIGINT NOT NULL, -- S2 Cell ID for efficient querying
+    grade VARCHAR(20) NOT NULL, -- 'common', 'rare', 'epic', 'legendary', 'advertisement'
+    center_location GEOGRAPHY(POINT, 4326) NOT NULL,
+    radius FLOAT DEFAULT 150.0, -- 150m (MVP), dynamic (Post-MVP)
+    s2_cell_id BIGINT NOT NULL, -- S2 Level 15 Cell ID
+    boundary GEOGRAPHY(POLYGON, 4326), -- Post-MVP: dynamic shapes
     spawned_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     expires_at TIMESTAMP WITH TIME ZONE,
+    ad_campaign_id UUID REFERENCES ad_campaigns(id), -- For advertisement Fractures
+    status VARCHAR(20) DEFAULT 'active' -- 'active', 'depleted', 'expired'
+);
+
+-- Vein 테이블 (광맥)
+CREATE TABLE veins (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    fracture_id UUID REFERENCES fractures(id) ON DELETE CASCADE,
+    location GEOGRAPHY(POINT, 4326) NOT NULL, -- Exact GPS coordinates
+    discovery_radius FLOAT DEFAULT 10.0, -- 10m (regular) / 3m (Genesis)
+    spawned_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    discovered_by UUID REFERENCES users(id),
+    discovered_at TIMESTAMP WITH TIME ZONE
+);
+
+-- Core 테이블 (광석 코어)
+CREATE TABLE cores (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    vein_id UUID REFERENCES veins(id) ON DELETE CASCADE,
+    fracture_id UUID REFERENCES fractures(id), -- Denormalized for quick queries
+    type VARCHAR(20) NOT NULL, -- 'ore', 'artifact', 'advertisement'
+    grade VARCHAR(20) NOT NULL, -- 'common', 'rare', 'epic', 'legendary'
+    value INTEGER NOT NULL, -- Point/Token value
+    model_variant INTEGER DEFAULT 1, -- For visual variety
+    spawned_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     collected_by UUID REFERENCES users(id),
     collected_at TIMESTAMP WITH TIME ZONE,
+    mining_duration_ms INTEGER, -- How long player took to mine
     ad_campaign_id UUID REFERENCES ad_campaigns(id)
 );
 
@@ -934,9 +1053,14 @@ CREATE TABLE quest_progress (
 
 -- 인덱스 최적화
 CREATE INDEX idx_users_location ON users USING GIST(last_location);
-CREATE INDEX idx_coins_location ON coins USING GIST(location);
-CREATE INDEX idx_coins_s2_cell ON coins(s2_cell_id);
-CREATE INDEX idx_coins_not_collected ON coins(collected_by) WHERE collected_by IS NULL;
+CREATE INDEX idx_fractures_location ON fractures USING GIST(center_location);
+CREATE INDEX idx_fractures_s2_cell ON fractures(s2_cell_id);
+CREATE INDEX idx_fractures_active ON fractures(status) WHERE status = 'active';
+CREATE INDEX idx_veins_location ON veins USING GIST(location);
+CREATE INDEX idx_veins_fracture ON veins(fracture_id);
+CREATE INDEX idx_cores_not_collected ON cores(collected_by) WHERE collected_by IS NULL;
+CREATE INDEX idx_cores_fracture ON cores(fracture_id);
+CREATE INDEX idx_cores_vein ON cores(vein_id);
 CREATE INDEX idx_location_history_user_time ON location_history(user_id, recorded_at DESC);
 CREATE INDEX idx_ad_campaigns_active ON ad_campaigns(status, starts_at, ends_at);
 ```
@@ -949,10 +1073,28 @@ CREATE INDEX idx_ad_campaigns_active ON ad_campaigns(status, starts_at, ends_at)
     - 프로필 정보 (TTL: 1시간)
     - 현재 위치 (TTL: 5분)
     - 에너지 상태 (TTL: 10분)
+    - 현재 진입 Fracture (TTL: 실시간)
 
-  coins:cell:{s2CellId}:
-    - 해당 셀의 코인 목록 (TTL: 1분)
-    - 스폰 예정 코인 (TTL: 5분)
+  fractures:cell:{s2CellId}:
+    - 해당 셀의 Fracture 목록 (TTL: 5분)
+    - Fracture 메타데이터 (grade, status)
+
+  fracture:{fractureId}:
+    - Fracture 상세 정보 (TTL: 10분)
+    - Vein 위치 (TTL: 진입 시까지)
+    - 활성 플레이어 수 (TTL: 1분)
+
+  vein:{veinId}:
+    - Vein 정보 (TTL: 발견 시까지)
+    - Core 메타데이터 (TTL: 채굴 완료 시까지)
+
+  cores:fracture:{fractureId}:
+    - Fracture 내 Core 목록 (TTL: 실시간)
+    - 미채굴 Core 카운트 (TTL: 1분)
+
+  geofence:{userId}:
+    - 사용자별 Geofencing 상태 (TTL: 실시간)
+    - 마지막 진입/이탈 이벤트
 
   leaderboard:
     daily: ZSET (TTL: 1일)
@@ -963,10 +1105,12 @@ CREATE INDEX idx_ad_campaigns_active ON ad_campaigns(status, starts_at, ends_at)
     - 사용자 세션 (TTL: 24시간)
     - 디바이스 정보
     - 마지막 활동
+    - 현재 씬 상태 (Map/ARGame)
 
   rate_limit:{userId}:
     - API 호출 카운터 (TTL: 1분)
-    - 수집 제한 (TTL: 1시간)
+    - Fracture 진입 제한 (TTL: 5초 쿨다운)
+    - Core 채굴 제한 (TTL: 1시간)
 ```
 
 ## 5. API 설계
@@ -980,16 +1124,27 @@ Authentication: POST   /api/v1/auth/register
   POST   /api/v1/auth/logout
   POST   /api/v1/auth/wallet [Post-MVP]
 
-User Management: GET    /api/v1/users/profile
-  PUT    /api/v1/users/profile
+User Management: GET    /api/v1/users/me
+  PUT    /api/v1/users/me
   GET    /api/v1/users/{id}
   GET    /api/v1/users/search
   GET    /api/v1/users/balance [Post-MVP]
 
 Location: POST   /api/v1/location/update
-  GET    /api/v1/location/nearby-coins
+  GET    /api/v1/location/nearby-fractures
   GET    /api/v1/location/nearby-players
-  POST   /api/v1/location/collect-coin
+  POST   /api/v1/location/check-geofence
+
+Fracture: GET    /api/v1/fractures
+  GET    /api/v1/fractures/{id}
+  POST   /api/v1/fractures/{id}/enter
+  POST   /api/v1/fractures/{id}/exit
+
+Vein: GET    /api/v1/veins/search
+  POST   /api/v1/veins/discover
+
+Core: GET    /api/v1/cores/in-fracture/{fractureId}
+  POST   /api/v1/cores/{id}/mine
 
 Game: GET    /api/v1/game/inventory
   POST   /api/v1/game/use-item
@@ -1020,17 +1175,27 @@ Social: GET    /api/v1/social/friends
 ```yaml
 Client → Server:
   location.update: 위치 업데이트
-  game.collect: 코인 수집
+  fracture.enter: Fracture 진입 (manual)
+  fracture.exit: Fracture 이탈 (manual)
+  vein.search: Vein 탐색 중
+  core.mine: Core 채굴 시도
   social.message: 채팅 메시지
   presence.online: 온라인 상태
 
 Server → Client:
-  coins.spawned: 새 코인 생성
-  coins.collected: 다른 유저가 수집
+  fracture.spawned: 새 Fracture 생성
+  fracture.entered: Geofencing 트리거 (자동 진입)
+  fracture.exited: Geofencing 경계 이탈
+  fracture.warning: 경계 이탈 경고 (135m)
+  vein.discovered: Vein 발견
+  core.available: Core 표시 가능
+  core.collected: 다른 유저가 채굴 완료
   players.nearby: 주변 플레이어
+  players.in_fracture: 같은 Fracture 내 플레이어
   quest.completed: 퀘스트 완료
   event.special: 특별 이벤트
   system.notification: 시스템 알림
+  scene.transition: 씬 전환 명령 (Map ↔ AR)
   blockchain.confirmed: 트랜잭션 확인 [Post-MVP]
 ```
 
@@ -1121,11 +1286,15 @@ Real-time Metrics:
   - Server Resource Usage
 
 Business Metrics:
-  - Coins Collected per Hour
-  - Ad Impressions
+  - Cores Mined per Hour
+  - Fractures Entered per Day
+  - Veins Discovered per Day
+  - Average Time in AR Mode
+  - Ad Fracture Impressions
+  - Ad Core Collection Rate
   - Revenue per User
   - User Retention Cohorts
-  - Geographic Distribution
+  - Geographic Distribution (Heatmap)
 
 Technical Alerts:
   - High Error Rate (> 1%)
@@ -1229,7 +1398,7 @@ Location Service 예시:
 
 Game Service 예시:
   프롬프트: "Implement Rust game service with:
-  - Fearless concurrency for coin collection
+  - Fearless concurrency for Core mining
   - Idempotent transaction processing
   - State machine for quest progress
   - Actor model for player entities
@@ -1376,7 +1545,8 @@ Token Economy:
   안정성 (Rust 서비스):
     ✓ Game Service: 0 동시성 버그
     ✓ Location Service: 0 GC pause
-    ✓ 아이템/코인 복제 버그: 0건
+    ✓ Geofencing: 100% 정확도
+    ✓ 아이템/Core 복제 버그: 0건
     ✓ 메모리 누수: 0건
     ✓ 데이터 무결성: 100%
 

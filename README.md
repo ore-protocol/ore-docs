@@ -66,6 +66,7 @@
 | 문서                                                         | 목적                 | 대상             |
 | ------------------------------------------------------------ | -------------------- | ---------------- |
 | [Gameplay Specification](docs/game-design/game-play-spec.md) | 핵심 게임 메커니즘   | Game Designer    |
+| [Player Journey Map](docs/game-design/player-journey-map.md) | 플레이어 경험 설계   | UX, Game Design  |
 | [Game Worldview](docs/game-design/game-worldview.md)         | Reality Layer 스토리 | Art, Marketing   |
 | [UX Design Guide](docs/game-design/ux-guide.md)              | 사용자 경험 철학     | UX, Unity 개발자 |
 
@@ -98,7 +99,7 @@ AI-Native 개발 패턴 및 베스트 프랙티스
 
 - 🏗️ 개발 환경 설정
 - ⚡ Location Service (Rust) - GPS & S2 Geometry
-- 🎮 Game Service (Rust) - 코인 수집 로직
+- 🎮 Game Service (Rust) - Core 채굴 로직
 - 🚪 API Gateway (Go) - 요청 라우팅
 
 ### **주요 마일스톤**

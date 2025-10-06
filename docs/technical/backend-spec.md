@@ -181,12 +181,21 @@ Analytics Domain (Go):
 Kafka Topics:
   # Commands (요청)
   commands.location.update
-  commands.coin.collect
+  commands.fracture.enter
+  commands.fracture.exit
+  commands.vein.discover
+  commands.core.mine
   commands.quest.complete
 
   # Events (발생한 일)
   events.location.updated
-  events.coin.collected
+  events.geofence.entered
+  events.geofence.exited
+  events.fracture.entered
+  events.fracture.exited
+  events.vein.discovered
+  events.core.mined
+  events.scene.transitioned
   events.quest.completed
   events.user.registered
   events.ad.viewed
@@ -194,64 +203,155 @@ Kafka Topics:
   # Analytics (분석용)
   analytics.raw.events
   analytics.processed.metrics
+  analytics.player.movements
 
   # Dead Letter Queue
   dlq.failed.events
 
-Event Flow Example:
-  1. User collects coin →
-  2. Game Service validates →
-  3. Publishes "coin.collected" event →
-  4. Consumed by:
+Event Flow Example (Core Mining):
+  1. User enters Fracture (geofencing) →
+  2. Location Service validates boundary →
+  3. Publishes "fracture.entered" event →
+  4. User discovers Vein →
+  5. Game Service validates distance →
+  6. Publishes "vein.discovered" event →
+  7. User mines Core →
+  8. Game Service validates and processes →
+  9. Publishes "core.mined" event →
+  10. Consumed by:
      - Analytics (통계 업데이트)
-     - Ad Service (광고 코인 체크)
+     - Ad Service (광고 Core 체크)
      - Blockchain (토큰 보상)
      - Realtime (다른 유저 알림)
+     - Leaderboard (순위 업데이트)
 ```
 
 ## 2. 주요 기능별 End-to-End 데이터 흐름
 
-### 2.1 코인 수집 플로우
+### 2.1 Core 채굴 플로우 (Fracture → Vein → Core)
 
 ```yaml
-사용자 코인 수집 요청 처리:
-  1. Unity Client: → 코인 감지 및 수집 애니메이션
-    → POST /game/coins/{id}/collect API 호출
+전체 플로우 (Map Mode → AR Mode → Map Mode):
 
-  2. API Gateway: → JWT 토큰 검증
-    → Rate limiting 체크
-    → Game Service로 라우팅
+Phase 1 - Map Mode (전략적 탐색):
+  1. Unity Client (Map.unity):
+    → GPS 위치 업데이트 (1초 간격)
+    → POST /location/update
+    → GET /location/nearby-fractures (100m 반경)
 
-  3. Game Service (Rust): → 요청 멱등성 체크 (중복 방지)
-    → 위치 유효성 검증 (Location Service 호출)
-    → 코인 소유권 확인
-    → DB 트랜잭션 시작
-    → 플레이어 상태 업데이트
-    → 코인 수집 기록
+  2. Location Service (Rust):
+    → GPS 유효성 검증 (anti-cheat)
+    → S2 Geometry Cell 조회 (Level 15)
+    → Redis 캐시 확인
+    → PostgreSQL 쿼리 (fractures 테이블)
+    → 거리 계산 및 정렬
+    → Fracture 목록 반환
+
+  3. Unity Client:
+    → Online Maps에 Fracture 마커 표시
+    → 등급별 색상/이펙트 렌더링
+
+Phase 2 - Geofencing (자동 전환):
+  4. Location Service (Rust):
+    → 플레이어 위치와 Fracture 경계 비교
+    → 150m 진입 감지
+    → Geofencing 이벤트 발행
+    → Kafka: events.geofence.entered
+
+  5. API Gateway:
+    → WebSocket: fracture.entered 메시지 전송
+    → Unity에 씬 전환 명령
+
+  6. Unity Client:
+    → Digital Crack 애니메이션 (1.618초)
+    → ARGame.unity Additive Load
+    → POST /fractures/{id}/enter 호출
+
+Phase 3 - AR Mode (Vein 탐색):
+  7. Game Service (Rust):
+    → 요청 멱등성 체크
+    → Fracture 경계 검증
+    → Vein 위치 조회 (DB)
+    → SceneTransitionData 생성
+    → 응답: Vein GPS + Core 메타데이터
+    → Kafka: events.fracture.entered
+
+  8. Unity Client (ARGame.unity):
+    → AR Foundation 초기화
+    → Vein까지 거리 계산 루프
+    → UI: "따뜻해요/뜨거워요" 힌트 표시
+
+  9. Vein 발견 (10m 이내):
+    → POST /veins/discover
+    → Game Service 거리 검증
+    → Kafka: events.vein.discovered
+    → 응답: Core AR 렌더링 데이터
+
+  10. Unity Client:
+    → AR 카메라에 Core 3D 모델 표시
+    → 사용자 채굴 미니게임 진행
+
+Phase 4 - Core 채굴:
+  11. Unity Client:
+    → POST /cores/{id}/mine
+    → 채굴 미니게임 결과 전송
+
+  12. Game Service (Rust):
+    → 요청 멱등성 체크 (중복 방지)
+    → 거리 검증 (10m 이내)
+    → Fracture 경계 내부 확인
+    → DB 트랜잭션 시작:
+      * cores 테이블 collected_by 업데이트
+      * users 테이블 포인트 증가
+      * mining_history 기록
     → 트랜잭션 커밋
-    → Kafka에 이벤트 발행
+    → Kafka: events.core.mined 발행
 
-  4. Event Bus (Kafka): → events.coin.collected 토픽에 발행
-    → 여러 서비스가 동시 구독
+  13. Event Bus (Kafka):
+    → Topic: events.core.mined
+    → 여러 서비스 동시 구독
 
-  5. Event Consumers:
-    a) Analytics Service: → 통계 데이터 업데이트
-      → TimescaleDB에 저장
-      → 리더보드 갱신
+Phase 5 - Event Processing:
+  14. Event Consumers:
+    a) Analytics Service (Go):
+      → 통계 업데이트 (cores_mined_today)
+      → TimescaleDB 저장
+      → 리더보드 갱신 (Redis)
 
-    b) Ad Service: → 광고 코인인지 확인
+    b) Ad Service (Go):
+      → Core 타입 확인 (advertisement?)
       → 광고 성과 추적
       → 광고주 대시보드 업데이트
+      → 광고 캠페인 예산 차감
 
-    c) Realtime Engine: → 주변 플레이어에게 알림
-      → 코인 사라짐 브로드캐스트
-      → 미니맵 업데이트
+    c) Realtime Engine (Rust):
+      → 같은 Fracture 내 플레이어에게 알림
+      → WebSocket: core.collected 브로드캐스트
+      → Fracture 상태 업데이트
 
-    d) Blockchain Service: → 보상 계산
-      → 토큰 지급 큐에 추가
-      → 일괄 처리 대기
+    d) Blockchain Service (Rust) [Post-MVP]:
+      → 보상 계산
+      → 스마트 컨트랙트 호출
+      → 토큰 지급 트랜잭션
 
-  6. Response to Client: → 성공 응답 + 업데이트된 잔액
+Phase 6 - Scene Transition (AR → Map):
+  15. Unity Client:
+    → 보상 애니메이션 (3.14초)
+    → Reality Crack Reverse (1.618초)
+    → ARGame.unity Unload
+    → Map.unity 복원
+    → POST /fractures/{id}/exit
+
+  16. Game Service:
+    → Fracture 세션 종료 기록
+    → 체류 시간 계산
+    → Kafka: events.fracture.exited
+
+  17. Response to Client:
+    → 성공 응답 + MiningResult
+    → 업데이트된 포인트 잔액
+    → 획득한 아이템 목록
+    → 경험치/레벨업 정보
     → WebSocket으로 실시간 업데이트
 ```
 
@@ -274,11 +374,11 @@ Event Flow Example:
   3. Event Publishing: → events.location.updated 발행
 
   4. Triggered Actions:
-    a) Game Service: → 근처 코인 스폰
+    a) Game Service: → 근처 Fracture/Vein 체크
       → 퀘스트 진행 체크
 
     b) Ad Service: → 광고 존 진입 체크
-      → 광고 코인 생성
+      → 광고 Core 생성
 
     c) Realtime Engine: → 플레이어 위치 브로드캐스트
       → 근접 플레이어 알림
@@ -302,7 +402,7 @@ Event Flow Example:
   3. Event Processing: → events.ad.viewed 발행
 
   4. Reward Distribution:
-    a) Game Service: → 보너스 코인 지급
+    a) Game Service: → 보너스 Core 지급
       → 곡괭이 효율 부스트
 
     b) Blockchain Service: → ORE 토큰 계산
@@ -323,7 +423,7 @@ Genesis 멤버 특별 처리:
     → NFT 뱃지 민팅 준비
 
   2. 게임 플레이: → 2x 보상 배수
-    → 특별 코인 스폰율
+    → 특별 Core 발견율 (3m vs 10m)
     → 프리미엄 퀘스트
 
   3. 토큰 에어드롭: → 총 공급량 3% 예약
@@ -335,20 +435,20 @@ Genesis 멤버 특별 처리:
 
 ### 3.1 Unity 컴포넌트 ↔ 백엔드 서비스 매핑
 
-| Unity 컴포넌트           | 주요 백엔드 서비스              | API 엔드포인트                                      | 실시간 채널                              |
-| ------------------------ | ------------------------------- | --------------------------------------------------- | ---------------------------------------- |
-| **ARInteractionManager** | Game Service, Location Service  | `/game/coins/nearby`<br>`/game/coins/{id}/collect`  | `coins.spawn`<br>`coins.collected`       |
-| **LocationManager**      | Location Service                | `/location/update`<br>`/location/nearby`            | `location.updates`                       |
-| **CoinCollectionSystem** | Game Service, Realtime Engine   | `/game/coins/{id}/collect`<br>`/game/inventory`     | `coins.collected`<br>`inventory.updated` |
-| **InventorySystem**      | Game Service                    | `/game/inventory`<br>`/game/items/{id}/use`         | `inventory.changed`                      |
-| **QuestSystem**          | Game Service, Analytics Service | `/game/quests`<br>`/game/quests/{id}/complete`      | `quest.progress`<br>`quest.completed`    |
-| **AdManager**            | Ad Service                      | `/ads/available`<br>`/ads/{id}/view`                | `ad.triggered`                           |
-| **SocialManager**        | User Service, Realtime Engine   | `/social/friends`<br>`/social/chat/{channel}`       | `chat.messages`<br>`friends.online`      |
-| **ProfileManager**       | User Service, Auth Service      | `/users/me`<br>`/users/avatar`                      | `profile.updated`                        |
-| **LeaderboardUI**        | Analytics Service               | `/analytics/leaderboard`<br>`/analytics/rankings`   | `leaderboard.updated`                    |
-| **AuthenticationFlow**   | Auth Service                    | `/auth/login`<br>`/auth/refresh`                    | -                                        |
-| **BlockchainBridge**     | Blockchain Service              | `/blockchain/balance`<br>`/blockchain/transactions` | `transaction.confirmed`                  |
-| **OfflineManager**       | - (로컬 처리)                   | -                                                   | -                                        |
+| Unity 컴포넌트           | 주요 백엔드 서비스              | API 엔드포인트                                      | 실시간 채널                             |
+| ------------------------ | ------------------------------- | --------------------------------------------------- | --------------------------------------- |
+| **ARInteractionManager** | Game Service, Location Service  | `/cores/in-fracture/{id}`<br>`/cores/{id}/mine`     | `core.available`<br>`core.collected`    |
+| **LocationManager**      | Location Service                | `/location/update`<br>`/location/nearby-fractures`  | `location.updates`                      |
+| **CoreMiningSystem**     | Game Service, Realtime Engine   | `/cores/{id}/mine`<br>`/game/inventory`             | `core.collected`<br>`inventory.updated` |
+| **InventorySystem**      | Game Service                    | `/game/inventory`<br>`/game/items/{id}/use`         | `inventory.changed`                     |
+| **QuestSystem**          | Game Service, Analytics Service | `/game/quests`<br>`/game/quests/{id}/complete`      | `quest.progress`<br>`quest.completed`   |
+| **AdManager**            | Ad Service                      | `/ads/available`<br>`/ads/{id}/view`                | `ad.triggered`                          |
+| **SocialManager**        | User Service, Realtime Engine   | `/social/friends`<br>`/social/chat/{channel}`       | `chat.messages`<br>`friends.online`     |
+| **ProfileManager**       | User Service, Auth Service      | `/users/me`<br>`/users/avatar`                      | `profile.updated`                       |
+| **LeaderboardUI**        | Analytics Service               | `/analytics/leaderboard`<br>`/analytics/rankings`   | `leaderboard.updated`                   |
+| **AuthenticationFlow**   | Auth Service                    | `/auth/login`<br>`/auth/refresh`                    | -                                       |
+| **BlockchainBridge**     | Blockchain Service              | `/blockchain/balance`<br>`/blockchain/transactions` | `transaction.confirmed`                 |
+| **OfflineManager**       | - (로컬 처리)                   | -                                                   | -                                       |
 
 ### 3.2 데이터 동기화 매트릭스
 
@@ -360,7 +460,7 @@ Genesis 멤버 특별 처리:
     Realtime → 주변 플레이어: < 100ms
 
   게임 상태:
-    코인 수집: 즉시 동기화
+    Core 채굴: 즉시 동기화
     인벤토리: 변경 시 즉시
     퀘스트: 진행률 5분마다
 
@@ -386,7 +486,7 @@ Unity 로컬 캐싱:
   캐시 데이터:
     - 플레이어 프로필
     - 인벤토리 상태
-    - 수집한 코인 (임시)
+    - 채굴한 Core (임시)
     - 퀘스트 진행률
 
   재연결 시 동기화: 1. 오프라인 액션 큐 전송
@@ -400,7 +500,7 @@ Unity 로컬 캐싱:
     3. 클라이언트 데이터
 
   검증 규칙:
-    - 코인 중복 수집 방지
+    - Core 중복 채굴 방지
     - 위치 이동 합리성 체크
     - 시간 조작 탐지
 ```
@@ -439,8 +539,8 @@ pub enum GameError {
     #[error("Database operation failed: {0}")]
     Database(#[from] sqlx::Error),
 
-    #[error("Invalid coin collection: {reason}")]
-    InvalidCollection { reason: String },
+    #[error("Invalid core mining: {reason}")]
+    InvalidMining { reason: String },
 }
 ```
 
@@ -448,7 +548,7 @@ pub enum GameError {
 
 ```rust
 // ✅ 실패 가능한 모든 작업에 Result<T> 사용
-pub async fn collect_coin(&self, cmd: CollectCoinCommand) -> Result<CollectResult, GameError> {
+pub async fn mine_core(&self, cmd: MineCoreCommand) -> Result<MiningResult, GameError> {
     // Implementation
 }
 
@@ -620,8 +720,8 @@ pub struct GameService {
 
 // 트랜잭션 처리
 impl GameService {
-    // 코인 수집 (멱등성 보장)
-    pub async fn collect_coin(&self, cmd: CollectCoinCommand) -> Result<CollectResult> {
+    // Core 채굴 (멱등성 보장)
+    pub async fn mine_core(&self, cmd: MineCoreCommand) -> Result<MiningResult> {
         // 1. Idempotency check
         if self.is_duplicate_request(&cmd.request_id).await? {
             return self.get_cached_result(&cmd.request_id).await;
@@ -630,32 +730,33 @@ impl GameService {
         // 2. Start transaction
         let mut tx = self.db_pool.begin().await?;
 
-        // 3. Validate collection
-        let validation = self.validate_collection(&cmd, &mut tx).await?;
+        // 3. Validate mining
+        let validation = self.validate_mining(&cmd, &mut tx).await?;
         if !validation.is_valid {
             tx.rollback().await?;
-            return Err(GameError::InvalidCollection(validation.reason));
+            return Err(GameError::InvalidMining(validation.reason));
         }
 
         // 4. Update player state
         let player = self.player_states.get_mut(&cmd.player_id).unwrap();
-        player.add_coin(cmd.coin_id, cmd.coin_value);
+        player.add_cores(cmd.core_id, cmd.core_value);
 
         // 5. Save to database
         sqlx::query!(
-            "INSERT INTO coin_collections (player_id, coin_id, collected_at)
-             VALUES ($1, $2, $3)",
-            cmd.player_id, cmd.coin_id, Utc::now()
+            "UPDATE cores SET collected_by = $1, collected_at = $2 WHERE id = $3",
+            cmd.player_id, Utc::now(), cmd.core_id
         ).execute(&mut tx).await?;
 
         // 6. Commit transaction
         tx.commit().await?;
 
         // 7. Publish event
-        self.kafka_producer.send(&Event::CoinCollected {
+        self.kafka_producer.send(&Event::CoreMined {
             player_id: cmd.player_id,
-            coin_id: cmd.coin_id,
-            value: cmd.coin_value,
+            core_id: cmd.core_id,
+            fracture_id: cmd.fracture_id,
+            vein_id: cmd.vein_id,
+            cores_earned: cmd.core_value,
             location: cmd.location,
             timestamp: Utc::now(),
         }).await?;
@@ -1066,8 +1167,8 @@ func (s *AdService) ConsumeLocationEvents() {
 
         // Check if user entered ad zone
         if s.isInAdZone(event.Location) {
-            // Trigger ad coin spawn
-            s.spawnAdCoin(event.UserID, event.Location)
+            // Trigger ad Core spawn
+            s.spawnAdCore(event.UserID, event.Location)
         }
     }
 }
@@ -1087,7 +1188,9 @@ type AnalyticsService struct {
 func (s *AnalyticsService) StartEventConsumer() {
     topics := []string{
         "events.location.updated",
-        "events.coin.collected",
+        "events.core.mined",
+        "events.fracture.entered",
+        "events.vein.discovered",
         "events.quest.completed",
         "events.ad.viewed",
         "events.user.registered",
@@ -1126,7 +1229,8 @@ func (s *AnalyticsService) GetRealTimeMetrics() (*Metrics, error) {
 
     // Get from Redis (updated by event processor)
     metrics.ActiveUsers, _ = s.redis.Get("metrics:active_users").Int()
-    metrics.CoinsCollected, _ = s.redis.Get("metrics:coins_collected").Int()
+    metrics.CoresMined, _ = s.redis.Get("metrics:cores_mined").Int()
+    metrics.FracturesEntered, _ = s.redis.Get("metrics:fractures_entered").Int()
     metrics.QuestsCompleted, _ = s.redis.Get("metrics:quests_completed").Int()
 
     // Get from TimescaleDB (aggregated)
@@ -1538,8 +1642,10 @@ func (g *GatewayService) setupRoutes() {
 
     // Game Service Routes
     game := protected.Group("/game")
-    game.Get("/coins/nearby", g.ProxyToService("game"))           // Get nearby coins
-    game.Post("/coins/:id/collect", g.ProxyToService("game"))     // Collect specific coin
+    game.Get("/fractures/:id", g.ProxyToService("game"))          // Get Fracture details
+    game.Post("/fractures/:id/enter", g.ProxyToService("game"))   // Enter Fracture
+    game.Get("/cores/in-fracture/:id", g.ProxyToService("game"))  // Get Cores in Fracture
+    game.Post("/cores/:id/mine", g.ProxyToService("game"))        // Mine specific Core
     game.Get("/inventory", g.ProxyToService("game"))              // Player inventory
     game.Post("/pickaxe/:id/equip", g.ProxyToService("game"))     // Equip pickaxe
     game.Post("/pickaxe/:id/upgrade", g.ProxyToService("game"))   // Upgrade pickaxe
@@ -2118,16 +2224,41 @@ CREATE TABLE locations (
 ) PARTITION BY RANGE (recorded_at);
 
 -- Game domain: game-service가 embedded SQLx migration으로 생성
-CREATE TABLE coins (
+-- Fracture 테이블 (균열 - 150m zones)
+CREATE TABLE fractures (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    location GEOGRAPHY(POINT, 4326) NOT NULL,
-    s2_cell_id BIGINT NOT NULL,
-    type VARCHAR(20) NOT NULL,
-    value INTEGER NOT NULL,
+    grade VARCHAR(20) NOT NULL, -- 'common', 'rare', 'epic', 'legendary', 'advertisement'
+    center_location GEOGRAPHY(POINT, 4326) NOT NULL,
+    radius FLOAT DEFAULT 150.0,
+    s2_cell_id BIGINT NOT NULL, -- S2 Level 15
+    boundary GEOGRAPHY(POLYGON, 4326),
     spawned_at TIMESTAMPTZ DEFAULT NOW(),
     expires_at TIMESTAMPTZ,
+    status VARCHAR(20) DEFAULT 'active'
+);
+
+-- Vein 테이블 (광맥 - exact GPS coordinates)
+CREATE TABLE veins (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    fracture_id UUID REFERENCES fractures(id) ON DELETE CASCADE,
+    location GEOGRAPHY(POINT, 4326) NOT NULL,
+    discovery_radius FLOAT DEFAULT 10.0, -- 10m regular, 3m Genesis
+    discovered_by UUID REFERENCES users(id),
+    discovered_at TIMESTAMPTZ
+);
+
+-- Core 테이블 (광석 코어 - AR objects + currency)
+CREATE TABLE cores (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    vein_id UUID REFERENCES veins(id) ON DELETE CASCADE,
+    fracture_id UUID REFERENCES fractures(id), -- Denormalized for performance
+    type VARCHAR(20) NOT NULL, -- 'ore', 'artifact', 'advertisement'
+    grade VARCHAR(20) NOT NULL,
+    cores_value INTEGER NOT NULL, -- How many Cores this gives
+    spawned_at TIMESTAMPTZ DEFAULT NOW(),
     collected_by UUID REFERENCES users(id),
-    collected_at TIMESTAMPTZ
+    collected_at TIMESTAMPTZ,
+    mining_duration_ms INTEGER
 );
 
 -- Game domain: game-service가 embedded SQLx migration으로 생성
@@ -2169,8 +2300,11 @@ CREATE TABLE ad_campaigns (
 -- 최적화된 index
 CREATE INDEX idx_locations_s2cell ON locations(s2_cell_id);
 CREATE INDEX idx_locations_user_time ON locations(user_id, recorded_at DESC);
-CREATE INDEX idx_coins_s2cell_available ON coins(s2_cell_id) WHERE collected_by IS NULL;
-CREATE INDEX idx_coins_location ON coins USING GIST(location);
+CREATE INDEX idx_fractures_s2cell_active ON fractures(s2_cell_id) WHERE status = 'active';
+CREATE INDEX idx_fractures_location ON fractures USING GIST(center_location);
+CREATE INDEX idx_veins_fracture ON veins(fracture_id);
+CREATE INDEX idx_cores_fracture_available ON cores(fracture_id) WHERE collected_by IS NULL;
+CREATE INDEX idx_cores_vein ON cores(vein_id);
 CREATE INDEX idx_ad_campaigns_active ON ad_campaigns(s2_cell_id, status) WHERE status = 'active';
 CREATE INDEX idx_genesis_number ON genesis_members(genesis_number);
 ```
@@ -2234,7 +2368,9 @@ Data 구조:
 
   # Game state
   HASH user:state:{user_id} → game_state
-  SET coins:cell:{cell_id} → available_coins
+  SET fractures:cell:{cell_id} → available_fractures
+  HASH fracture:{fracture_id} → fracture_details
+  SET cores:fracture:{fracture_id} → available_cores
 
   # Leaderboard
   ZSET leaderboard:global → scores
@@ -2248,7 +2384,8 @@ Data 구조:
   # 실시간 메트릭
   HASH metrics:realtime → {
     active_users: count,
-    coins_collected: count,
+    cores_mined: count,
+    fractures_entered: count,
     quests_completed: count
   }
 
@@ -2269,7 +2406,12 @@ Topic Configuration:
     replication: 3
     retention: 24 hours
 
-  commands.coin.collect:
+  commands.fracture.enter:
+    partitions: 10
+    replication: 3
+    retention: 24 hours
+
+  commands.core.mine:
     partitions: 10
     replication: 3
     retention: 24 hours
@@ -2280,7 +2422,17 @@ Topic Configuration:
     replication: 3
     retention: 7 days
 
-  events.coin.collected:
+  events.fracture.entered:
+    partitions: 20
+    replication: 3
+    retention: 7 days
+
+  events.vein.discovered:
+    partitions: 20
+    replication: 3
+    retention: 7 days
+
+  events.core.mined:
     partitions: 20
     replication: 3
     retention: 7 days
@@ -2304,7 +2456,9 @@ Schema Registry:
 
   Schemas:
     - LocationUpdatedEvent
-    - CoinCollectedEvent
+    - FractureEnteredEvent
+    - VeinDiscoveredEvent
+    - CoreMinedEvent
     - QuestCompletedEvent
     - UserRegisteredEvent
     - AdViewedEvent
@@ -2342,8 +2496,10 @@ Location: POST   /location/update
   GET    /location/history
   POST   /location/share
 
-Game: GET    /game/coins/nearby
-  POST   /game/coins/{id}/collect
+Game: GET    /game/fractures/{id}
+  POST   /game/fractures/{id}/enter
+  GET    /game/cores/in-fracture/{id}
+  POST   /game/cores/{id}/mine
   GET    /game/inventory
   POST   /game/pickaxe/{id}/equip
   POST   /game/pickaxe/{id}/upgrade
@@ -2388,10 +2544,11 @@ Subscriptions:
 Client Events:
   → {"type": "location.update", "data": {"lat": 37.5, "lng": 127.0}}
   → {"type": "chat.message", "data": {"channel": "global", "text": "Hello"}}
-  → {"type": "game.action", "data": {"action": "collect", "target": "coin_123"}}
+  → {"type": "game.action", "data": {"action": "mine", "target": "core_123"}}
 
 Server Events:
-  ← {"type": "coins.nearby", "data": [{"id": "coin_1", "value": 10, "location": {...}}]}
+  ← {"type": "fracture.entered", "data": {"fracture_id": "frac_1", "grade": "epic"}}
+  ← {"type": "core.available", "data": [{"id": "core_1", "cores_value": 10, "location": {...}}]}
   ← {"type": "players.nearby", "data": [{"id": "player_1", "username": "Alice"}]}
   ← {"type": "chat.message", "data": {"from": "Bob", "text": "Hi!", "timestamp": "..."}}
   ← {"type": "quest.completed", "data": {"quest_id": "daily_1", "rewards": {...}}}
@@ -2424,7 +2581,8 @@ message UpdateLocationRequest {
 
 // Game Service
 service GameService {
-    rpc CollectCoin(CollectCoinRequest) returns (CollectCoinResponse);
+    rpc EnterFracture(EnterFractureRequest) returns (EnterFractureResponse);
+    rpc MineCore(MineCoreRequest) returns (MineCoreResponse);
     rpc GetPlayerState(GetPlayerStateRequest) returns (PlayerState);
     rpc ProcessQuest(ProcessQuestRequest) returns (ProcessQuestResponse);
 }
@@ -2628,9 +2786,9 @@ CREATE TABLE location_history_2025_09 PARTITION OF location_history
 FOR VALUES FROM ('2025-09-01') TO ('2025-10-01');
 
 -- Optimized queries with covering indexes
-CREATE INDEX idx_covering_coins
-ON coins(s2_cell_id, spawned_at, value)
-INCLUDE (type, location)
+CREATE INDEX idx_covering_cores
+ON cores(fracture_id, spawned_at, cores_value)
+INCLUDE (type, grade, vein_id)
 WHERE collected_by IS NULL;
 
 -- Materialized views for expensive queries

@@ -272,9 +272,9 @@ Location Service 확장:
     - 레어리티 시스템
 
   API 엔드포인트:
-    - GET /coins/nearby
-    - POST /coins/spawn
-    - DELETE /coins/expire
+    - GET /cores/in-fracture/{id}
+    - POST /cores/{id}/mine
+    - POST /fractures/{id}/enter
 
 Unity 통합:
   - 코인 마커 표시
@@ -313,7 +313,7 @@ Unity 통합:
 
 Claude Code 프롬프트: "Build Rust game service with compile-time safety:
   - Actor model for game entities (actix)
-  - Idempotent coin collection transactions
+  - Idempotent Core mining transactions
   - State machine for quest progression
   - ACID guarantees with SQLx transactions
   - Event sourcing for game events
@@ -487,9 +487,9 @@ Month 1 완료: ✓ Rust 핵심 서비스 완성
   - 퀘스트 진행
   - 레벨업 시스템
 
-Claude Code 활용: "Create Unity AR coin collection gameplay:
+Claude Code 활용: "Create Unity AR Core mining gameplay:
   - Touch interaction with raycasting
-  - Collection animations with DOTween
+  - Mining animations with DOTween
   - Particle effects and sound
   - Server synchronization
   - Offline mode support"
