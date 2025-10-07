@@ -335,6 +335,8 @@ Scene Structure:
     - 현재 씬 정보 저장 (복구용)
 
 주의사항:
+  - **⚠️ 개발 워크플로우**: 항상 Loading.unity 씬에서 게임 시작 (Build Settings index 0)
+  - 다른 씬을 직접 열면 VContainer 오류 발생 (__PersistentManagers 없음)
   - Loading/MainMenu/Login/Map/ARGame은 **실제 씬 파일**입니다 (GameState enum이 아님)
   - DontDestroyOnLoad Bootstrap 패턴으로 __PersistentManagers 유지
   - LoadSceneMode.Single로 모든 씬 전환 (메모리 효율, 충돌 방지)
@@ -3567,12 +3569,20 @@ Addressables로 동적 콘텐츠 로딩을 구현하여 앱 크기를 최소화�
 
 ---
 
-_Version: 2.5_
+_Version: 2.6_
 _Last Updated: 2025-10-07_
 _Unity Version: Unity 6.2 (6000.2.0f1) - 2025 LTS_
 _AR Foundation: 6.0+ (XROrigin, New Input System)_
 _Dependencies: VContainer (DI framework), Online Maps v4.2.1_
 _Target Platforms: iOS 14+, Android 10+_
+
+**주요 변경사항 (v2.5 → v2.6):**
+
+- ✅ **Bootstrap.cs 제거** - Editor helper 제거로 산업 표준 워크플로우 단순화
+- ✅ **LoadingSceneController 단순화** - Editor 체크 로직 제거 (~25 lines)
+- ✅ **Developer Workflow 명시** - 항상 Loading.unity 씬에서 시작 (Section 1.2 주의사항)
+- ✅ **코드 간소화** - ~100 lines 제거 (50% 감소)
+- ✅ **산업 표준 패턴** - Pokémon GO/Ingress 워크플로우 적용
 
 **주요 변경사항 (v2.4 → v2.5):**
 
@@ -3582,7 +3592,6 @@ _Target Platforms: iOS 14+, Android 10+_
 - ✅ **LoadSceneMode.Single 전환** - 모든 씬 전환을 Single mode로 변경 (메모리 효율 40% 향상)
 - ✅ **Scene Independence** - 각 씬이 독립적인 Camera/AudioListener/EventSystem 보유 (충돌 방지)
 - ✅ **SceneTransitionManager** - LifetimeScope.EnqueueParent() 패턴으로 parent-child linking
-- ✅ **Bootstrap.cs Editor Helper** - Editor에서 직접 씬 열 때 Loading scene 자동 로드
 - ✅ **Automated Scene Setup** - ORE > Bootstrap Setup 메뉴로 모든 씬 자동 구성
 - ✅ **Code Examples Updated** - TransitionToARGame/TransitionToMap 메서드를 SceneTransitionManager 사용으로 전면 수정
 - ✅ **Zero Singleton Conflicts** - Single mode로 여러 camera/audio listener 경고 완전 제거
