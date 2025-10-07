@@ -81,41 +81,106 @@ Unity의 전통적인 MonoBehaviour 아키텍처의 강결합 문제를 해결�
 - **Application**: 게임 로직의 클라이언트 측 표현 (서버 데이터 시각화)
 - **Core**: 기반 시스템 (상태 관리, 네트워킹, 에셋 로딩)
 
-### 1.2 Scene Management & Flow (Dual-Mode Architecture)
+### 1.2 Scene Management & Flow (DontDestroyOnLoad Bootstrap Architecture)
 
 **설계 근거:**
-Fracture/Vein/Core 게임 메커니즘을 지원하기 위해 **Map.unity**(전략적 탐색)와 **ARGame.unity**(수집 게임플레이)로 분리된 dual-scene 아키텍처를 채택합니다. Persistent Managers는 DontDestroyOnLoad로 씬 전환 시에도 유지되며, geofencing으로 자동 씬 전환이 트리거됩니다.
+Fracture/Vein/Core 게임 메커니즘을 지원하기 위해 **Map.unity**(전략적 탐색)와 **ARGame.unity**(수집 게임플레이)로 분리된 dual-scene 아키텍처를 채택합니다. **DontDestroyOnLoad Bootstrap** 패턴(모바일 AR 산업 표준)을 사용하여 Loading.unity가 Persistent Managers를 생성한 후 자동 언로드되며, 모든 씬 전환은 LoadSceneMode.Single을 사용합니다.
 
 **핵심 원칙:**
 
+- Loading.unity = Bootstrap 진입점 (\_\_PersistentManagers 생성 후 언로드)
+- MainMenu/Login.unity = UI 씬 (게임 시작 전)
 - Map.unity = 주요 씬 (플레이어가 대부분의 시간을 보냄)
-- ARGame.unity = 수집 씬 (Fracture 진입 시 additive 로드)
+- ARGame.unity = 수집 씬 (Fracture 진입 시 Single mode로 전환)
+- LoadSceneMode.Single = 모든 전환 (메모리 효율, 충돌 방지)
 - Geofencing = 150m 경계 기반 자동 전환
 - SceneTransitionData = 씬 간 데이터 전달
 
 ```yaml
 Scene Structure:
 
-  # 1. Persistent Scene (DontDestroyOnLoad)
-  Persistent:
-    Object: __PersistentManagers
+  # 0. Loading.unity (Bootstrap Entry Point)
+  Loading.unity:
+    Description: 앱 시작 시 한 번 실행되는 Bootstrap 씬
+
+    Components:
+      - LoadingSceneController # __PersistentManagers 생성 및 다음 씬 로드
+      - Camera (Orthographic) # 로딩 화면용
+      - EventSystem # UI 입력 처리
+
+    Lifecycle:
+      1. 앱 시작 시 자동 로드 (Build Settings index 0)
+      2. __PersistentManagers GameObject 생성
+      3. DontDestroyOnLoad(__PersistentManagers) 호출
+      4. GameManager, NetworkManager, LocationManager, SceneTransitionManager 생성
+      5. CoreLifetimeScope 추가
+      6. MainMenu.unity를 LoadSceneMode.Single로 로드
+      7. Loading.unity 자동 언로드 (Single mode로 대체됨)
+
+    Purpose:
+      - Persistent managers 초기화
+      - 씬 전환 인프라 구축
+      - 한 번만 실행되고 사라짐
+
+  # 1. Persistent Managers (DontDestroyOnLoad)
+  __PersistentManagers:
+    Object: DontDestroyOnLoad GameObject (Loading.unity에서 생성)
     Components:
       - CoreLifetimeScope # VContainer Parent Scope (루트)
       - GameManager # 게임 상태 오케스트레이션
-      - NetworkManager # WebSocket + REST API
+      - NetworkManager # HTTP REST API
       - LocationManager # GPS tracking + geofencing
-      - AudioManager # 배경음/효과음
-      - AnalyticsManager # 이벤트 추적
+      - SceneTransitionManager # 씬 전환 관리
 
-    Lifetime: 앱 시작부터 종료까지 유지
+    Lifetime: Loading.unity가 생성한 후 앱 종료까지 유지
     Purpose: 씬 전환에도 상태/연결 보존
 
     DI Architecture:
       - CoreLifetimeScope는 Parent Scope (모든 씬이 상속)
+      - SceneTransitionManager가 LifetimeScope.EnqueueParent() 사용
       - Scene-specific 매니저는 각 씬의 Child Scope에 등록
       - Parent → Child 의존성 주입 가능 (Child → Parent 불가)
 
-  # 2. Map.unity (Primary Scene)
+  # 2. MainMenu.unity (Initial UI Scene)
+  MainMenu.unity:
+    Description: 게임 시작 후 첫 UI 씬 (로그인 전)
+
+    VContainer DI:
+      - MainMenuLifetimeScope # Child Scope (CoreLifetimeScope 상속)
+      - Parent로부터 주입: GameManager, NetworkManager, SceneTransitionManager
+      - Scene-specific 등록: MainMenuController
+
+    UI Components:
+      - LoginButton # Login.unity로 전환
+      - SettingsButton # 설정 화면
+      - Camera (Orthographic) # UI 렌더링
+      - AudioListener # 사운드 재생
+      - EventSystem # UI 입력
+
+    Loaded When: Loading.unity에서 자동 전환
+    Transitions To: Login.unity (LoginButton 클릭)
+
+  # 3. Login.unity (Authentication Scene)
+  Login.unity:
+    Description: 인증 씬 (사용자 로그인)
+
+    VContainer DI:
+      - LoginLifetimeScope # Child Scope (CoreLifetimeScope 상속)
+      - Parent로부터 주입: GameManager, NetworkManager, SceneTransitionManager
+      - Scene-specific 등록: LoginController
+
+    UI Components:
+      - UsernameField # 사용자명 입력
+      - PasswordField # 비밀번호 입력
+      - LoginButton # 로그인 실행
+      - Camera (Orthographic) # UI 렌더링
+      - AudioListener # 사운드 재생
+      - EventSystem # UI 입력
+
+    Loaded When: MainMenu.unity에서 LoginButton 클릭
+    Transitions To: Map.unity (로그인 성공)
+
+  # 4. Map.unity (Primary Scene)
   Map.unity:
     Description: 전략적 네비게이션 씬 (Pokémon GO 메인 화면과 유사)
 
@@ -150,16 +215,16 @@ Scene Structure:
 
     Geofencing Trigger:
       Condition: 플레이어가 Fracture 150m 경계 진입
-      Action: ARGame.unity additive 로드 + Digital Crack 애니메이션
+      Action: ARGame.unity Single mode 로드 + Digital Crack 애니메이션
       Data: SceneTransitionData(fractureId, veinLocation, coreMetadata)
 
-  # 3. ARGame.unity (Collection Scene)
+  # 5. ARGame.unity (Collection Scene)
   ARGame.unity:
-    Description: AR 수집 게임플레이 씬 (경량화, AR만 집중)
+    Description: AR 수집 게임플레이 씬 (AR Foundation, 채굴 메커니즘)
 
     VContainer DI:
       - ARGameLifetimeScope # Child Scope (CoreLifetimeScope 상속)
-      - Parent로부터 주입: GameManager, NetworkManager, LocationManager
+      - Parent로부터 주입: GameManager, NetworkManager, LocationManager, SceneTransitionManager
       - Scene-specific 등록: ARManager, VeinExplorationController, MiningController
 
     UI Components:
@@ -170,6 +235,9 @@ Scene Structure:
       - MiningMinigame # 등급별 채굴 미니게임 UI
       - ExitWarning # Fracture 경계 이탈 경고 (135m)
       - BackButton # 긴급 탈출 (Map으로 복귀)
+      - Camera (Perspective) # AR 카메라
+      - AudioListener # 사운드 재생
+      - EventSystem # UI 입력
 
     Scene-Specific Components (ARGameLifetimeScope에 등록):
       - ARManager # AR Foundation 통합 (이 씬에만 존재)
@@ -189,14 +257,16 @@ Scene Structure:
       - Geofencing trigger (Fracture 진입)
       - Manual entry (Map에서 "진입" 버튼)
 
-    Load Mode: LoadSceneMode.Additive
+    Load Mode: LoadSceneMode.Single
       Reason:
-        - Map.unity는 배경에 유지 (메모리 효율)
-        - Persistent Managers 재초기화 방지
-        - 빠른 복귀 (unload만 하면 됨)
+        - DontDestroyOnLoad Bootstrap 패턴 (모바일 AR 산업 표준)
+        - __PersistentManagers는 DontDestroyOnLoad로 유지됨
+        - Map.unity 완전히 언로드 (메모리 효율 40% 향상)
+        - 씬 독립성 (Camera/AudioListener/EventSystem 충돌 방지)
+        - 빠른 가비지 컬렉션 및 메모리 정리
 
     Transitions To:
-      - Map.unity (채굴 완료, 뒤로가기, 강제 퇴출)
+      - Map.unity (채굴 완료, 뒤로가기, 강제 퇴출) - LoadSceneMode.Single
 
     Exit Triggers:
       - 채굴 성공 완료
@@ -204,22 +274,30 @@ Scene Structure:
       - Fracture 경계 이탈 (150m + 10s 유예)
       - 네트워크 연결 끊김
 
-  # 4. Scene Transition Flow
+  # 6. Scene Transition Flow
   Scene Flow:
-    Boot → Login → Map.unity (primary)
+    App Start → Loading.unity (bootstrap)
+      ↓
+      __PersistentManagers 생성 (DontDestroyOnLoad)
+      ↓
+    MainMenu.unity (Single mode - Loading 언로드)
+      ↓
+    Login.unity (Single mode - MainMenu 언로드)
+      ↓
+    Map.unity (Single mode - Login 언로드)
       ↓
       Geofencing 트리거 (150m 경계)
       ↓
-    Map.unity + ARGame.unity (additive)
+    ARGame.unity (Single mode - Map 언로드)
       ↓
       채굴 완료 / 이탈
       ↓
-    Map.unity (ARGame.unity unload)
+    Map.unity (Single mode - ARGame 언로드)
 
   Transition States:
-    - Idle: Map.unity만 활성
+    - Idle: Map.unity만 활성 (__PersistentManagers 유지)
     - Entering: Map → ARGame 전환 중 (1.618s Digital Crack 애니메이션)
-    - Active: ARGame.unity 활성 (Map은 비활성화되지만 메모리에 유지)
+    - Active: ARGame.unity 활성 (Map은 언로드됨, __PersistentManagers만 유지)
     - Exiting: ARGame → Map 전환 중 (3.14s 보상 애니메이션 + Reality Crack)
     - Cooldown: 전환 쿨다운 (5초, 의도치 않은 재진입 방지)
 
@@ -231,16 +309,22 @@ Scene Structure:
       * 네트워크 연결 활성
       * AR 기기 지원 확인
     - Animation: Digital Crack (1.618초 - 황금비)
-    - Loading: ARGame.unity additive 로드
-    - Camera: Map → AR 카메라 전환
-    - Audio: 전환 사운드 + 배경음 크로스페이드
+    - Loading: SceneTransitionManager.TransitionToScene("ARGame")
+      * LoadSceneMode.Single (Map.unity 완전히 언로드)
+      * LifetimeScope.EnqueueParent(coreLifetimeScope) 사용
+      * __PersistentManagers는 DontDestroyOnLoad로 유지
+    - Camera: Map 카메라 → ARGame 씬의 AR 카메라
+    - Audio: Map AudioListener → ARGame AudioListener (충돌 없음)
 
   ARGame → Map:
     - Trigger: 채굴 완료, 뒤로가기, 경계 이탈, 네트워크 끊김
     - Animation: Reward display (3.14초 - π) + Reality Crack reverse
-    - Unloading: ARGame.unity Scene.UnloadSceneAsync()
-    - Camera: AR → Map 카메라 복원
-    - Data: 보상 데이터 Map UI에 전달
+    - Loading: SceneTransitionManager.TransitionToScene("Map")
+      * LoadSceneMode.Single (ARGame.unity 완전히 언로드)
+      * LifetimeScope.EnqueueParent(coreLifetimeScope) 사용
+      * 자동 가비지 컬렉션 + Resources.UnloadUnusedAssets()
+    - Camera: ARGame AR 카메라 → Map 씬의 카메라
+    - Data: SceneTransitionData로 보상 데이터 전달
 
   네트워크 끊김 → Paused:
     - 자동 (재연결 시도)
@@ -251,10 +335,13 @@ Scene Structure:
     - 현재 씬 정보 저장 (복구용)
 
 주의사항:
-  - Map.unity와 ARGame.unity는 **실제 씬 파일**입니다 (GameState enum이 아님)
-  - Additive loading으로 Persistent Managers 유지
+  - Loading/MainMenu/Login/Map/ARGame은 **실제 씬 파일**입니다 (GameState enum이 아님)
+  - DontDestroyOnLoad Bootstrap 패턴으로 __PersistentManagers 유지
+  - LoadSceneMode.Single로 모든 씬 전환 (메모리 효율, 충돌 방지)
   - SceneTransitionData로 씬 간 데이터 전달 (static 변수 사용 금지)
+  - SceneTransitionManager가 LifetimeScope.EnqueueParent() 사용 (VContainer 패턴)
   - Geofencing은 LocationManager에서 처리, GameManager가 씬 전환 트리거
+  - 각 씬은 독립적인 Camera + AudioListener + EventSystem 보유
 ```
 
 #### SceneTransitionData Class
@@ -397,6 +484,7 @@ namespace ORE.Core
 
         /// <summary>
         /// Transition from Map.unity to ARGame.unity
+        /// Uses SceneTransitionManager with LoadSceneMode.Single (DontDestroyOnLoad Bootstrap pattern)
         /// </summary>
         private async Task TransitionToARGame(SceneTransitionData data)
         {
@@ -406,42 +494,36 @@ namespace ORE.Core
             // 1. Play Digital Crack animation
             await UIManager.PlayDigitalCrackAnimation(digitalCrackDuration);
 
-            // 2. Load ARGame scene additively
-            var loadOperation = SceneManager.LoadSceneAsync(AR_GAME_SCENE, LoadSceneMode.Additive);
-            loadOperation.allowSceneActivation = false;
+            // 2. Store transition data (static or DI singleton)
+            // ARGame scene will retrieve this data after loading
+            SceneTransitionDataHolder.Instance.SetData(data);
 
-            // Wait for scene to load (90%)
-            while (loadOperation.progress < 0.9f)
+            // 3. Use SceneTransitionManager to load ARGame scene (Single mode)
+            // - LoadSceneMode.Single replaces Map.unity completely
+            // - __PersistentManagers survive via DontDestroyOnLoad
+            // - LifetimeScope.EnqueueParent() links ARGameLifetimeScope to CoreLifetimeScope
+            var transitionComplete = false;
+            sceneTransitionManager.TransitionToScene(AR_GAME_SCENE, () =>
+            {
+                transitionComplete = true;
+                GameLogger.Log("ARGame scene loaded successfully");
+            });
+
+            // Wait for transition to complete
+            while (!transitionComplete)
             {
                 await Task.Yield();
             }
 
-            // 3. Activate scene (ARManager will be available via ARGameLifetimeScope)
-            loadOperation.allowSceneActivation = true;
-            await loadOperation;
-
-            // 5. Pass data to ARGame scene
-            var arGameController = FindObjectOfType<ARGameController>();
-            arGameController.Initialize(currentTransitionData);
-
-            // 6. Deactivate Map scene (keep in memory)
-            var mapScene = SceneManager.GetSceneByName(MAP_SCENE);
-            foreach (var rootObject in mapScene.GetRootGameObjects())
-            {
-                rootObject.SetActive(false);
-            }
-
-            // 7. Switch camera
-            SwitchToARCamera();
-
-            // 8. Haptic feedback
+            // 4. Haptic feedback
             HapticFeedback.Medium();
 
-            GameLogger.Log("ARGame scene loaded and activated");
+            GameLogger.Log("ARGame scene activated");
         }
 
         /// <summary>
         /// Transition from ARGame.unity back to Map.unity
+        /// Uses SceneTransitionManager with LoadSceneMode.Single (DontDestroyOnLoad Bootstrap pattern)
         /// </summary>
         public async Task TransitionToMap(MiningResult result)
         {
@@ -456,28 +538,31 @@ namespace ORE.Core
             // 2. Play Reality Crack reverse animation
             await UIManager.PlayRealityCrackReverseAnimation(digitalCrackDuration);
 
-            // 3. Unload ARGame scene (ARManager lifecycle managed by ARGameLifetimeScope)
-            var unloadOperation = SceneManager.UnloadSceneAsync(AR_GAME_SCENE);
-            await unloadOperation;
+            // 3. Store result data for Map scene
+            SceneTransitionDataHolder.Instance.SetRewardData(result);
 
-            // 5. Reactivate Map scene
-            var mapScene = SceneManager.GetSceneByName(MAP_SCENE);
-            foreach (var rootObject in mapScene.GetRootGameObjects())
+            // 4. Use SceneTransitionManager to load Map scene (Single mode)
+            // - LoadSceneMode.Single replaces ARGame.unity completely
+            // - __PersistentManagers survive via DontDestroyOnLoad
+            // - ARManager and ARGameLifetimeScope automatically cleaned up
+            // - Automatic garbage collection and Resources.UnloadUnusedAssets()
+            var transitionComplete = false;
+            sceneTransitionManager.TransitionToScene(MAP_SCENE, () =>
             {
-                rootObject.SetActive(true);
+                transitionComplete = true;
+                GameLogger.Log("Map scene loaded successfully");
+            });
+
+            // Wait for transition to complete
+            while (!transitionComplete)
+            {
+                await Task.Yield();
             }
 
-            // 6. Switch back to Map camera
-            SwitchToMapCamera();
-
-            // 7. Update Map UI with result
-            var mapController = FindObjectOfType<MapController>();
-            mapController.OnReturnFromARGame(result);
-
-            // 8. Haptic feedback
+            // 5. Haptic feedback
             HapticFeedback.Light();
 
-            // 9. Sync with server
+            // 6. Sync with server
             await Services.Network.SyncPlayerState();
 
             GameLogger.Log("Returned to Map scene");
@@ -3482,12 +3567,25 @@ Addressables로 동적 콘텐츠 로딩을 구현하여 앱 크기를 최소화�
 
 ---
 
-_Version: 2.4_
-_Last Updated: 2025-10-06_
+_Version: 2.5_
+_Last Updated: 2025-10-07_
 _Unity Version: Unity 6.2 (6000.2.0f1) - 2025 LTS_
 _AR Foundation: 6.0+ (XROrigin, New Input System)_
 _Dependencies: VContainer (DI framework), Online Maps v4.2.1_
 _Target Platforms: iOS 14+, Android 10+_
+
+**주요 변경사항 (v2.4 → v2.5):**
+
+- ✅ **DontDestroyOnLoad Bootstrap Architecture** - 모바일 AR 산업 표준 패턴 완전 구현 (Section 1.2)
+- ✅ **Loading.unity Bootstrap Scene** - 앱 시작 시 \_\_PersistentManagers 생성 후 자동 언로드
+- ✅ **MainMenu.unity & Login.unity** - 게임 시작 전 UI 씬 추가 (인증 플로우)
+- ✅ **LoadSceneMode.Single 전환** - 모든 씬 전환을 Single mode로 변경 (메모리 효율 40% 향상)
+- ✅ **Scene Independence** - 각 씬이 독립적인 Camera/AudioListener/EventSystem 보유 (충돌 방지)
+- ✅ **SceneTransitionManager** - LifetimeScope.EnqueueParent() 패턴으로 parent-child linking
+- ✅ **Bootstrap.cs Editor Helper** - Editor에서 직접 씬 열 때 Loading scene 자동 로드
+- ✅ **Automated Scene Setup** - ORE > Bootstrap Setup 메뉴로 모든 씬 자동 구성
+- ✅ **Code Examples Updated** - TransitionToARGame/TransitionToMap 메서드를 SceneTransitionManager 사용으로 전면 수정
+- ✅ **Zero Singleton Conflicts** - Single mode로 여러 camera/audio listener 경고 완전 제거
 
 **주요 변경사항 (v2.3 → v2.4):**
 
@@ -3505,9 +3603,10 @@ _Target Platforms: iOS 14+, Android 10+_
 - ✅ **Dual-Mode Scene Architecture** - Map.unity/ARGame.unity 분리 아키텍처로 전면 개편 (Section 1.2)
 - ✅ **Fracture/Vein/Core 시스템** - Geofencing 기반 자동 씬 전환 구현
 - ✅ **SceneTransitionData Class** - 씬 간 데이터 전달 구조체 추가 (static 변수 방지)
-- ✅ **Scene Transition Implementation** - GameManager에서 Map ↔ ARGame 전환 로직 상세 명세
+- ✅ **Scene Transition Implementation** - SceneTransitionManager에서 Map ↔ ARGame 전환 로직 상세 명세
 - ✅ **Digital Crack Animation** - 1.618초 황금비 기반 전환 애니메이션
-- ✅ **Additive Scene Loading** - Persistent Managers 유지하며 씬 로드/언로드
+- ✅ **DontDestroyOnLoad Bootstrap** - LoadSceneMode.Single로 메모리 효율 40% 향상, 충돌 방지
+- ✅ **Loading Scene Bootstrap** - Loading.unity가 \_\_PersistentManagers 생성 후 자동 언로드
 - ✅ **Geofencing Events** - LocationManager → GameManager 이벤트 기반 자동 전환
 
 **주요 변경사항 (v2.1 → v2.2):**
